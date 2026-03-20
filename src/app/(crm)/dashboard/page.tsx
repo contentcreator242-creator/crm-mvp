@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -15,6 +16,16 @@ import {
   leadWorkflowBadgeClass,
 } from "@/lib/leads/leadWorkflowStatus";
 import { ContentCard, PageHeader, StatCard } from "@/components/crm-shell";
+
+const recentLeadDashboardSelect = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  status: true,
+  createdAt: true,
+} satisfies Prisma.LeadSelect;
+
+type DashboardRecentLead = Prisma.LeadGetPayload<{ select: typeof recentLeadDashboardSelect }>;
 
 function formatLeadCreatedDate(date: Date) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -63,73 +74,73 @@ export default async function DashboardPage() {
   const orgIdWhere = { organizationId: organizationRow.id };
 
   const [
-    totalLeads,
-    totalDeals,
-    dealsNew,
-    dealsQualified,
-    dealsWon,
-    dealsLost,
-    tasksDueToday,
-    tasksOverdue,
-    lenders,
-    lendersSchemaFull,
+    [
+      totalLeads,
+      totalDeals,
+      dealsNew,
+      dealsQualified,
+      dealsWon,
+      dealsLost,
+      tasksDueToday,
+      tasksOverdue,
+      lenders,
+      lendersSchemaFull,
+    ],
     recentLeads,
   ] = await Promise.all([
-    prisma.lead.count({ where: orgIdWhere }),
-    prisma.deal.count({ where: orgIdWhere }),
-    prisma.deal.count({
-      where: {
-        ...orgIdWhere,
-        status: "new",
-      },
-    }),
-    prisma.deal.count({
-      where: {
-        ...orgIdWhere,
-        status: "qualified",
-      },
-    }),
-    prisma.deal.count({
-      where: {
-        ...orgIdWhere,
-        status: "won",
-      },
-    }),
-    prisma.deal.count({
-      where: {
-        ...orgIdWhere,
-        status: "lost",
-      },
-    }),
-    prisma.task.count({
-      where: {
-        ...orgIdWhere,
-        status: { not: "done" },
-        dueAt: { gte: startOfTodayUtc, lte: endOfTodayUtc },
-      },
-    }),
-    prisma.task.count({
-      where: {
-        ...orgIdWhere,
-        status: { not: "done" },
-        dueAt: { lt: startOfTodayUtc },
-      },
-    }),
-    findLendersForOrganization(prisma, organizationRow.id),
-    lenderSchemaIsFull(prisma),
+    Promise.all([
+      prisma.lead.count({ where: orgIdWhere }),
+      prisma.deal.count({ where: orgIdWhere }),
+      prisma.deal.count({
+        where: {
+          ...orgIdWhere,
+          status: "new",
+        },
+      }),
+      prisma.deal.count({
+        where: {
+          ...orgIdWhere,
+          status: "qualified",
+        },
+      }),
+      prisma.deal.count({
+        where: {
+          ...orgIdWhere,
+          status: "won",
+        },
+      }),
+      prisma.deal.count({
+        where: {
+          ...orgIdWhere,
+          status: "lost",
+        },
+      }),
+      prisma.task.count({
+        where: {
+          ...orgIdWhere,
+          status: { not: "done" },
+          dueAt: { gte: startOfTodayUtc, lte: endOfTodayUtc },
+        },
+      }),
+      prisma.task.count({
+        where: {
+          ...orgIdWhere,
+          status: { not: "done" },
+          dueAt: { lt: startOfTodayUtc },
+        },
+      }),
+      findLendersForOrganization(prisma, organizationRow.id),
+      lenderSchemaIsFull(prisma),
+    ]),
     prisma.lead.findMany({
       where: orgIdWhere,
       orderBy: { createdAt: "desc" },
       take: 5,
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        status: true,
-        createdAt: true,
-      },
+      select: recentLeadDashboardSelect,
     }),
   ]);
+
+  const recentLeadsRows: DashboardRecentLead[] = recentLeads;
 
   const dealStageRows = [
     { key: "new" as const, count: dealsNew, label: "New" },
@@ -170,7 +181,7 @@ export default async function DashboardPage() {
             </Link>
           }
         >
-          {recentLeads.length === 0 ? (
+          {recentLeadsRows.length === 0 ? (
             <p className="px-5 py-8 text-sm text-slate-500 sm:px-6">No leads yet.</p>
           ) : (
             <div className="overflow-x-auto border-t border-slate-100">
@@ -183,7 +194,7 @@ export default async function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentLeads.map((lead) => (
+                  {recentLeadsRows.map((lead) => (
                     <tr key={lead.id} className="adm-tr">
                       <td className="adm-td">
                         <Link
