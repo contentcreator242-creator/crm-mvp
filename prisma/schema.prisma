@@ -1,0 +1,494 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Organization {
+  id String @id @default(uuid())
+
+  clerkOrganizationId String @unique @map("clerk_organization_id")
+  name String?
+  /// Public id for lead capture / embed forms (per workspace). Backfilled in app when null.
+  leadCapturePublicKey String? @unique @map("lead_capture_public_key")
+
+  /// Workspace branding (optional). Display name for emails/embed; falls back to `name` when null.
+  brandingCompanyName String? @map("branding_company_name")
+  brandingLogoUrl String? @map("branding_logo_url")
+  brandingPrimaryColorHex String? @map("branding_primary_color_hex")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  leads Lead[]
+  leadNotes LeadNote[]
+  leadActivities LeadActivity[]
+  deals Deal[]
+  tasks Task[]
+  lenders Lender[]
+  leadSubmissions LeadSubmission[]
+
+  /// Set when the five default UK lenders have been seeded for this org (once).
+  defaultLendersSeededAt DateTime? @map("default_lenders_seeded_at")
+
+  memberEmailPreferences OrganizationMemberEmailPreference[]
+  emailTemplates EmailTemplate[]
+
+  @@map("organizations")
+}
+
+/// Custom lead email templates (workspace-scoped).
+model EmailTemplate {
+  id String @id @default(uuid())
+
+  organizationId String @map("organization_id")
+  name String
+  subject String
+  body String @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("email_templates")
+}
+
+/// Per-user (Clerk) reply-to for outbound lead emails in this workspace. Overrides org-wide EMAIL_REPLY_TO when set.
+model OrganizationMemberEmailPreference {
+  id String @id @default(uuid())
+
+  organizationId String @map("organization_id")
+  clerkUserId String @map("clerk_user_id")
+  replyToEmail String @map("reply_to_email")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, clerkUserId])
+  @@index([organizationId])
+  @@map("organization_member_email_preferences")
+}
+
+model Tenant {
+  id String @id @default(uuid())
+
+  clerkOrgId String @unique @map("clerk_org_id")
+  isBeta Boolean @default(false) @map("is_beta")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  contacts Contact[]
+  companies Company[]
+  deals Deal[]
+  tasks Task[]
+  notes Note[]
+  activityEvents ActivityEvent[]
+  auditLogs AuditLog[]
+  leadSubmissions LeadSubmission[]
+  lenderMatches LenderMatch[]
+  lenderMatchExplanations LenderMatchExplanation[]
+  stripeCustomers StripeCustomer[]
+  subscriptionEntitlements SubscriptionEntitlement[]
+
+  @@map("tenants")
+}
+
+model Contact {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  firstName String? @map("first_name")
+  lastName String? @map("last_name")
+  email String? @map("email")
+  phone String? @map("phone")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("contacts")
+}
+
+model Company {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  name String
+  domain String? @map("domain")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("companies")
+}
+
+model Deal {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  organizationId String? @map("organization_id")
+  leadId String? @map("lead_id")
+
+  name String @default("")
+  value Int? @map("value")
+  stage String @default("new")
+
+  title String
+  status String @default("new")
+  amountCents Int? @map("amount_cents")
+  currency String? @map("currency")
+  expectedCloseDate DateTime? @map("expected_close_date")
+
+  // MVP: store link IDs without enforcing relations here.
+  companyId String? @map("company_id")
+  contactId String? @map("contact_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  lead Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  leadActivities LeadActivity[]
+
+  @@index([tenantId])
+  @@index([organizationId])
+  @@index([leadId])
+  @@map("deals")
+}
+
+model Task {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  organizationId String? @map("organization_id")
+  title String
+  status String @default("open")
+  dueAt DateTime? @map("due_at")
+  assigneeClerkUserId String? @map("assignee_clerk_user_id")
+
+  companyId String? @map("company_id")
+  contactId String? @map("contact_id")
+  dealId String? @map("deal_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([organizationId])
+  @@map("tasks")
+}
+
+model Lead {
+  id String @id @default(uuid())
+
+  organizationId String @map("organization_id")
+  firstName String @map("first_name")
+  lastName String? @map("last_name")
+  email String? @map("email")
+  phone String? @map("phone")
+  companyName String? @map("company_name")
+  status String @default("new")
+  notes String? @map("notes")
+
+  requestedAmount Int? @map("requested_amount")
+  annualRevenue Int? @map("annual_revenue")
+  timeTradingMonths Int? @map("time_trading_months")
+  creditIssues Boolean? @map("credit_issues")
+  businessType String? @map("business_type")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deals Deal[]
+  captureSubmissions LeadSubmission[] @relation("LeadCapture")
+  activities LeadActivity[]
+  leadNotes LeadNote[]
+
+  @@index([organizationId, status])
+  @@map("leads")
+}
+
+model LeadNote {
+  id String @id @default(uuid())
+
+  organizationId String @map("organization_id")
+  leadId String @map("lead_id")
+  content String @map("content")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, leadId, createdAt])
+  @@map("lead_notes")
+}
+
+model LeadActivity {
+  id String @id @default(uuid())
+
+  organizationId String @map("organization_id")
+  leadId String @map("lead_id")
+  dealId String? @map("deal_id")
+
+  eventType String @map("event_type")
+  description String @map("description")
+  metadata Json? @map("metadata")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  deal Deal? @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, leadId, createdAt])
+  @@index([leadId, createdAt])
+  @@map("lead_activities")
+}
+
+/// Per-organization lender criteria for deterministic matching (admin-managed).
+model Lender {
+  id String @id @default(uuid())
+
+  organizationId String @map("organization_id")
+  name String
+  isActive Boolean @default(true) @map("is_active")
+
+  sourceUrl String? @map("source_url")
+  lastReviewedAt DateTime? @map("last_reviewed_at")
+  /// "high" | "medium" | "low" — how reliable the encoded rules are.
+  criteriaConfidence String? @map("criteria_confidence")
+
+  minAnnualRevenue Int? @map("min_annual_revenue")
+  minMonthlyRevenue Int? @map("min_monthly_revenue")
+  minTimeTradingMonths Int? @map("min_time_trading_months")
+  minLoanAmount Int? @map("min_loan_amount")
+  maxLoanAmount Int? @map("max_loan_amount")
+  acceptsAdverseCredit Boolean @default(false) @map("accepts_adverse_credit")
+  requiresPersonalGuarantee Boolean @default(false) @map("requires_personal_guarantee")
+  /// Max loan as multiple of annual revenue (e.g. 2 = 2× revenue cap).
+  maxLoanAsRevenueMultiple Float? @map("max_loan_as_revenue_multiple")
+
+  /// JSON string[] — empty/null means any industry allowed if not excluded.
+  allowedIndustries Json? @map("allowed_industries")
+  /// JSON string[] — industries this lender will not fund.
+  excludedIndustries Json? @map("excluded_industries")
+
+  notes String? @map("notes")
+  isDefaultSeeded Boolean @default(false) @map("is_default_seeded")
+  isUserModified Boolean @default(false) @map("is_user_modified")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, isActive])
+  @@map("lenders")
+}
+
+model Note {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  content String
+
+  // MVP generic linking: the consuming code interprets (refType, refId).
+  refType String? @map("ref_type")
+  refId String? @map("ref_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("notes")
+}
+
+model ActivityEvent {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  actorClerkUserId String? @map("actor_clerk_user_id")
+
+  entityType String @map("entity_type")
+  entityId String @map("entity_id")
+  action String @map("action")
+
+  metadata Json? @map("metadata")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@map("activity_events")
+}
+
+model AuditLog {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  actorClerkUserId String? @map("actor_clerk_user_id")
+  action String @map("action")
+
+  entityType String @map("entity_type")
+  entityId String? @map("entity_id")
+
+  diff Json? @map("diff")
+  requestId String? @map("request_id")
+  ip String? @map("ip")
+  userAgent String? @map("user_agent")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
+
+model LeadSubmission {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  organizationId String? @map("organization_id")
+  leadId String? @map("lead_id")
+
+  fullName String? @map("full_name")
+  firstName String? @map("first_name")
+  lastName String? @map("last_name")
+  email String? @map("email")
+  phone String? @map("phone")
+  message String? @map("message")
+  companyName String? @map("company_name")
+  requestedAmount Int? @map("requested_amount")
+  annualRevenue Int? @map("annual_revenue")
+  timeTradingMonths Int? @map("time_trading_months")
+  creditIssues Boolean? @map("credit_issues")
+  businessType String? @map("business_type")
+  notes String? @map("notes")
+
+  leadSource String? @map("lead_source")
+  submittedAt DateTime @default(now()) @map("submitted_at")
+  metadata Json? @map("metadata")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  lead Lead? @relation("LeadCapture", fields: [leadId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, submittedAt])
+  @@index([organizationId, submittedAt])
+  @@map("lead_submissions")
+}
+
+model LenderMatch {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  organizationId String? @map("organization_id")
+  leadSubmissionId String? @map("lead_submission_id")
+  leadId String? @map("lead_id")
+
+  // MVP: persist ranked results + explanations in JSON.
+  results Json? @map("results")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  explanations LenderMatchExplanation[]
+
+  @@index([tenantId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("lender_matches")
+}
+
+model LenderMatchExplanation {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  matchId String @map("match_id")
+
+  lenderName String @map("lender_name")
+  rank Int @map("rank")
+  score Int? @map("score")
+  explanation String? @map("explanation")
+
+  metadata Json? @map("metadata")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  match LenderMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, rank])
+  @@map("lender_match_explanations")
+}
+
+model StripeCustomer {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+  stripeCustomerId String @unique @map("stripe_customer_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("stripe_customers")
+}
+
+model SubscriptionEntitlement {
+  id String @id @default(uuid())
+
+  tenantId String @map("tenant_id")
+
+  stripeSubscriptionId String @unique @map("stripe_subscription_id")
+  quantity Int @map("quantity")
+  status String @map("status")
+  currentPeriodEnd DateTime? @map("current_period_end")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("subscription_entitlements")
+}
+
+// Global (non-tenant) table used for webhook idempotency.
+model StripeWebhookEvent {
+  eventId String @id @map("event_id")
+  eventType String @map("event_type")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("stripe_webhook_events")
+}
+
+

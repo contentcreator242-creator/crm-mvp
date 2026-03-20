@@ -1,0 +1,20 @@
+
+# clerk configuration (can include secrets)
+/.clerk/
+
+# dependencies
+node_modules/
+
+# Next.js build & dev cache (never commit — large files)
+.next/
+out/
+
+# env (never commit secrets)
+.env
+.env*.local
+
+# TypeScript
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
