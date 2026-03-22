@@ -1,12 +1,20 @@
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db/prisma";
 import { resolveOrganizationId } from "@/lib/auth/organization";
-import { getTenantContext } from "@/lib/auth/clerk";
 import { crmStatusBadgeClass } from "@/lib/ui/crmBadges";
-import { PageHeader } from "@/components/crm-shell";
+import {
+  dealLenderSubmissionBadgeClass,
+  dealLenderSubmissionLabel,
+} from "@/lib/deals/dealLenderSubmissionLabels";
+import {
+  submissionStatusBadgeClass,
+  submissionStatusLabel,
+} from "@/lib/deals/submissionLabels";
+import { ContentCard, PageHeader } from "@/components/crm-shell";
 
 const stages = ["new", "qualified", "won", "lost"] as const;
 const StageEnum = z.enum(stages);
@@ -41,6 +49,15 @@ export default async function DealsPage() {
   const deals = await prisma.deal.findMany({
     where: { organizationId },
     orderBy: { createdAt: "desc" },
+    include: {
+      lender: { select: { id: true, name: true } },
+      dealLenderSubmissions: {
+        include: {
+          lender: { select: { name: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
   });
 
   const leadIds = Array.from(
@@ -63,21 +80,29 @@ export default async function DealsPage() {
   async function moveStage(formData: FormData) {
     "use server";
 
-    const ctx = await getTenantContext();
+    const { userId, orgId, orgSlug } = await auth();
+    if (!userId) redirect("/sign-in");
+    if (!orgId) redirect("/organization/create");
+
     const prisma = getPrisma();
-    const organizationId = await resolveOrganizationId(ctx.clerkOrgId);
+    const organizationId = await resolveOrganizationId(orgId, orgSlug ?? null);
 
     const dealId = z.string().uuid().parse(formData.get("dealId"));
     const nextStage = StageEnum.parse(formData.get("stage"));
 
-    await prisma.deal.updateMany({
+    // Kanban reads `stage` first (`getStage`); only updating `status` left cards stuck in the old column.
+    const result = await prisma.deal.updateMany({
       where: { id: dealId, organizationId },
       data: {
-        // Use legacy field to remain compatible with older Prisma clients.
+        stage: nextStage,
         status: nextStage,
       },
     });
 
+    // Temporary debug — remove after verifying in production
+    console.log("[moveStage]", { dealId, nextStage, organizationId, updatedCount: result.count });
+
+    revalidatePath("/deals");
     redirect("/deals");
   }
 
@@ -105,6 +130,20 @@ export default async function DealsPage() {
         }
       />
 
+      {deals.length === 0 ? (
+        <ContentCard padding="lg">
+          <div className="mx-auto max-w-md text-center">
+            <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Pipeline</p>
+            <p className="mt-2 text-lg font-semibold text-slate-900">No deals yet</p>
+            <p className="mt-2 text-sm text-slate-600">
+              Create a deal to track opportunities, link leads, and move stages as they progress.
+            </p>
+            <Link href="/deals/new" className="adm-btn-primary mt-6 inline-flex text-sm">
+              Create deal
+            </Link>
+          </div>
+        </ContentCard>
+      ) : (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {stages.map((stage) => (
             <section
@@ -143,11 +182,64 @@ export default async function DealsPage() {
                         </p>
                         <p className="text-base font-semibold tabular-nums tracking-tight text-slate-900">
                           {formatCurrency(
-                            typeof (deal as any).value === "number"
-                              ? (deal as any).value
-                              : deal.amountCents,
+                            typeof deal.value === "number" ? deal.value : deal.amountCents,
                           )}
                         </p>
+                      </div>
+                      <div className="mt-3 space-y-1">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                          Lenders
+                        </p>
+                        {deal.dealLenderSubmissions.length > 0 ? (
+                          <p className="text-sm font-medium text-slate-800">
+                            {deal.dealLenderSubmissions
+                              .map((s) => s.lender.name)
+                              .slice(0, 3)
+                              .join(", ")}
+                            {deal.dealLenderSubmissions.length > 3
+                              ? ` (+${deal.dealLenderSubmissions.length - 3})`
+                              : ""}
+                          </p>
+                        ) : deal.lender?.name ? (
+                          <p className="text-sm font-medium text-slate-800">{deal.lender.name}</p>
+                        ) : (
+                          <p className="text-sm text-slate-500">—</p>
+                        )}
+                      </div>
+                      <div className="mt-3 space-y-1">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                          Lender status
+                        </p>
+                        {deal.dealLenderSubmissions.length > 0 ? (
+                          <ul className="space-y-1">
+                            {deal.dealLenderSubmissions.slice(0, 4).map((s) => (
+                              <li key={s.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                                <span className="font-medium text-slate-700">{s.lender.name}</span>
+                                <span className={dealLenderSubmissionBadgeClass(s.status)}>
+                                  {dealLenderSubmissionLabel(s.status)}
+                                </span>
+                              </li>
+                            ))}
+                            {deal.dealLenderSubmissions.length > 4 ? (
+                              <li className="text-[10px] text-slate-500">
+                                +{deal.dealLenderSubmissions.length - 4} more on deal page
+                              </li>
+                            ) : null}
+                          </ul>
+                        ) : (
+                          <>
+                            <p className="mt-0.5">
+                              <span className={submissionStatusBadgeClass(deal.submissionStatus)}>
+                                {submissionStatusLabel(deal.submissionStatus)}
+                              </span>
+                            </p>
+                            {deal.submissionDate ? (
+                              <p className="mt-1 text-xs tabular-nums text-slate-600">
+                                {formatDate(deal.submissionDate)}
+                              </p>
+                            ) : null}
+                          </>
+                        )}
                       </div>
                       <div className="mt-3 space-y-1">
                         <p className="text-[11px] uppercase tracking-wide text-slate-500">Lead</p>
@@ -189,6 +281,7 @@ export default async function DealsPage() {
             </section>
           ))}
         </div>
+      )}
     </div>
   );
 }

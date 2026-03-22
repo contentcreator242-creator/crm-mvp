@@ -25,9 +25,11 @@ function CheckIcon({ className }: { className?: string }) {
 }
 
 export function LeadWorkflowPanel({
+  leadId,
   currentStatusRaw,
   updateWorkflowStatus,
 }: {
+  leadId: string;
   currentStatusRaw: string | null | undefined;
   updateWorkflowStatus: UpdateWorkflowAction;
 }) {
@@ -79,6 +81,7 @@ export function LeadWorkflowPanel({
               ) : null}
               <div className="flex min-w-0 max-w-[5.5rem] flex-1 flex-col items-center sm:max-w-none">
                 <form action={updateWorkflowStatus} className="flex flex-col items-center">
+                  <input type="hidden" name="leadId" value={leadId} />
                   <input type="hidden" name="workflowStatus" value={value} />
                   <button
                     type="submit"
@@ -116,6 +119,7 @@ export function LeadWorkflowPanel({
       <div className="mt-6 space-y-3 border-t border-slate-200/80 pt-4">
         {hasNext && nextStatus ? (
           <form action={updateWorkflowStatus}>
+            <input type="hidden" name="leadId" value={leadId} />
             <input type="hidden" name="workflowStatus" value={nextStatus} />
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <button

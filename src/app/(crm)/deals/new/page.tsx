@@ -7,6 +7,7 @@ import { resolveOrganizationId } from "@/lib/auth/organization";
 import { getTenantContext } from "@/lib/auth/clerk";
 import { PageHeader } from "@/components/crm-shell";
 import { createLeadActivity } from "@/lib/leads/activity";
+import { markOnboardingFirstDeal } from "@/lib/onboarding/organizationChecklist";
 
 const CreateDealInput = z.object({
   name: z.string().min(1).max(180),
@@ -83,6 +84,7 @@ export default async function NewDealPage({
         organizationId,
         // Backward-compatible linkage: existing Prisma clients always know contactId.
         contactId: safeLeadId,
+        leadId: safeLeadId,
         // Keep legacy fields populated for existing API compatibility.
         title: parsed.name,
         status: parsed.stage,
@@ -100,6 +102,8 @@ export default async function NewDealPage({
         metadata: { stage: parsed.stage },
       });
     }
+
+    await markOnboardingFirstDeal(prisma, organizationId);
 
     redirect("/deals");
   }

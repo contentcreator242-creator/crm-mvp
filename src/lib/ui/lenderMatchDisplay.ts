@@ -24,6 +24,10 @@ export type LenderMatchDisplayRow = {
   keyReasons: string[];
   /** Parsed from explanation footer when present. */
   criteriaReliability: CriteriaReliabilityLabel | null;
+  /**
+   * Org-scoped lender id when `lenderName` matches a row in `lenders` (passed through forms for reliable linking).
+   */
+  resolvedLenderId?: string | null;
 };
 
 export function passFailFromScore(score: number | null): "Pass" | "Fail" {

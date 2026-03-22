@@ -12,9 +12,9 @@ type ContentCardProps = {
 
 const paddingClass = {
   none: "",
-  sm: "p-4 sm:p-5",
-  md: "p-5 sm:p-6",
-  lg: "p-6 sm:p-8",
+  sm: "p-5 sm:p-6",
+  md: "p-6 sm:p-8",
+  lg: "p-7 sm:p-9",
 };
 
 export function ContentCard({
@@ -30,14 +30,14 @@ export function ContentCard({
   return (
     <section className={`adm-content-card rounded-2xl border border-slate-200/90 bg-white shadow-adm ${className}`}>
       {hasHeader ? (
-        <div className="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6">
-          <div>
-            {title ? <h2 className="text-base font-bold text-slate-900">{title}</h2> : null}
+        <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-8 sm:py-6">
+          <div className="min-w-0">
+            {title ? <h2 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h2> : null}
             {description ? (
-              <p className="mt-1 text-sm text-slate-600">{description}</p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">{description}</p>
             ) : null}
           </div>
-          {headerExtra ? <div className="flex shrink-0 flex-wrap gap-2">{headerExtra}</div> : null}
+          {headerExtra ? <div className="flex shrink-0 flex-wrap gap-3">{headerExtra}</div> : null}
         </div>
       ) : null}
       <div className={paddingClass[padding]}>{children}</div>

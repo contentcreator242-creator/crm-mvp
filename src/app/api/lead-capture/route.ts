@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/api/errors";
 import { withErrorHandling } from "@/lib/api/withErrorHandling";
 import { getPrisma } from "@/lib/db/prisma";
@@ -13,13 +12,10 @@ import {
 import { verifyPublicLeadCaptcha } from "@/lib/security/captcha";
 import { rateLimitByIp } from "@/lib/security/rateLimit";
 import { PublicLeadCaptureInput } from "@/lib/validation/leadCapture";
-import {
-  leadSubmissionToSignals,
-  prismaLenderToCriteria,
-  rankLendersForLead,
-} from "@/lib/matching/lenderEngine";
-import { findActiveLendersForMatching } from "@/lib/lenders/lenderQueries";
+import { leadSubmissionToSignals } from "@/lib/matching/lenderEngine";
+import { persistLenderMatchForLead } from "@/lib/matching/persistLenderMatch";
 import { createLeadActivity } from "@/lib/leads/activity";
+import { markOnboardingFirstLead } from "@/lib/onboarding/organizationChecklist";
 
 function getClientIp(req: Request) {
   const xff = req.headers.get("x-forwarded-for");
@@ -142,6 +138,8 @@ export async function POST(req: Request) {
       return { lead: leadRow, submission: submissionRow };
     });
 
+    await markOnboardingFirstLead(prisma, org.id);
+
     const signals = leadSubmissionToSignals({
       firstName: submission.firstName,
       lastName: submission.lastName,
@@ -166,45 +164,17 @@ export async function POST(req: Request) {
 
     try {
       await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
-
-        const dbLenders = await findActiveLendersForMatching(tx, org.id);
-
-        const criteriaList = dbLenders.map(prismaLenderToCriteria);
-        const ranked = rankLendersForLead(signals, criteriaList);
-
-        const matchRow = await tx.lenderMatch.create({
-          data: {
-            tenantId,
-            organizationId: org.id,
-            leadSubmissionId: submission.id,
-            leadId: lead.id,
-            results: {
-              rankedResults: ranked.map((r) => ({
-                lenderName: r.lenderName,
-                score: r.score,
-                rank: r.rank,
-                explanation: r.explanation,
-                criteriaConfidence: r.criteriaConfidence,
-              })),
-            } as Prisma.InputJsonValue,
-          },
-          select: { id: true },
+        await persistLenderMatchForLead(tx, {
+          tenantId,
+          organizationId: org.id,
+          leadId: lead.id,
+          leadSubmissionId: submission.id,
+          signals,
         });
-
-        // Prisma throws if `data` is empty — rolls back the whole tx and no match is saved.
-        if (ranked.length > 0) {
-          await tx.lenderMatchExplanation.createMany({
-            data: ranked.map((r) => ({
-              tenantId,
-              matchId: matchRow.id,
-              lenderName: r.lenderName,
-              rank: r.rank,
-              score: r.score,
-              explanation: r.explanation,
-            })),
-          });
-        }
+      });
+      await prisma.lead.updateMany({
+        where: { id: lead.id, organizationId: org.id },
+        data: { lastMatchedAt: new Date() },
       });
     } catch (err) {
       console.warn("[lead-capture] lender matching failed (lead still saved):", err);

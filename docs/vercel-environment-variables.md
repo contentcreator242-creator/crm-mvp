@@ -22,7 +22,6 @@ For each row: **Name** = left side, **Value** = right side (no quotes needed in 
 
 | Key | What to put | Where you get it |
 |-----|-------------|------------------|
-| `BLOB_READ_WRITE_TOKEN` | Long token string | Vercel → **Storage** → Blob store linked to project (often auto-added as env var) — needed for **logo upload** |
 | `PRISMA_USE_NEON` | `1` if using Neon, otherwise omit | Set `1` only when `DATABASE_URL` is Neon (matches app’s Neon adapter logic) |
 
 ---
@@ -58,12 +57,17 @@ For each row: **Name** = left side, **Value** = right side (no quotes needed in 
 
 ---
 
-## Optional: Stripe billing
+## Optional: Stripe Billing (Lendex monthly subscription)
 
 | Key | What to put | Where you get it |
 |-----|-------------|------------------|
-| `STRIPE_SECRET_KEY` | `sk_live_...` / `sk_test_...` | Stripe Dashboard → API keys |
-| `STRIPE_WEBHOOK_SECRET` | `whsec_...` | Stripe → Webhooks → signing secret for your Vercel URL |
+| `STRIPE_SECRET_KEY` | `sk_live_...` / `sk_test_...` | Stripe → **Developers → API keys** |
+| `STRIPE_PRICE_ID` | `price_...` | Stripe → **Product catalog** → your **Lendex** product → monthly **Price** ID |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_...` | Stripe → **Webhooks** → endpoint `https://<your-domain>/api/stripe/webhook` → **Signing secret** |
+
+**Webhook events to send:** `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`.
+
+Also set **`NEXT_PUBLIC_APP_URL`** so Checkout **success** / **cancel** URLs point at your deployment.
 
 ---
 
@@ -89,3 +93,12 @@ After deploy, in **Clerk Dashboard → your app → Domains**, add your Vercel U
 3. For **each** line in `.env.local` (`NAME=value`), add **Name** = `NAME`, **Value** = everything after the first `=`.
 4. Add **`NEXT_PUBLIC_APP_URL`** = your Vercel deployment URL (this one is often not in `.env.local` yet — set it after the first deploy).
 5. Redeploy.
+
+---
+
+## Onboarding column (`onboarding_completed_at`)
+
+After pulling the onboarding feature, apply the schema:
+
+- **`npx prisma migrate deploy`** (production) or **`npx prisma migrate dev`** (local), **or**
+- **`npx prisma db push`** — then see `scripts/backfill-onboarding-completed.sql` if existing orgs should skip the wizard (read the warning in that file first).

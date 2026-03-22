@@ -31,9 +31,7 @@ export default async function IntegrationsSettingsPage() {
       clerkOrganizationId: orgId,
       name: orgSlug ?? null,
     },
-    update: {
-      name: orgSlug ?? undefined,
-    },
+    update: {},
     select: { id: true },
   });
 

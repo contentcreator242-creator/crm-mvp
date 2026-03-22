@@ -23,7 +23,13 @@ export async function createLeadActivity(
       | "deal_created"
       | "note"
       | "lender_action"
-      | "email_sent";
+      | "email_sent"
+      | "deal_submitted_to_lender"
+      | "deal_lender_approved"
+      | "deal_lender_rejected"
+      | "lender_selected_for_deal"
+      | "deal_lender_status_changed"
+      | "lender_matches_refreshed";
     description: string;
     metadata?: any;
   },
@@ -90,6 +96,18 @@ export function formatLeadActivityType(eventType: string): string {
       return "Note";
     case "lender_action":
       return "Lender action";
+    case "deal_submitted_to_lender":
+      return "Deal submitted to lender";
+    case "deal_lender_approved":
+      return "Deal approved by lender";
+    case "deal_lender_rejected":
+      return "Deal rejected by lender";
+    case "lender_selected_for_deal":
+      return "Lender selected";
+    case "deal_lender_status_changed":
+      return "Lender status updated";
+    case "lender_matches_refreshed":
+      return "Lender matches refreshed";
     default:
       return eventType.replaceAll("_", " ");
   }

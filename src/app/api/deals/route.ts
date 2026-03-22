@@ -4,6 +4,8 @@ import { getTenantContext } from "@/lib/auth/clerk";
 import { resolveOrganizationId } from "@/lib/auth/organization";
 import { withTenantDb } from "@/lib/db/tenantDb";
 import { withErrorHandling } from "@/lib/api/withErrorHandling";
+import { getPrisma } from "@/lib/db/prisma";
+import { markOnboardingFirstDeal } from "@/lib/onboarding/organizationChecklist";
 
 const UuidOpt = z.string().uuid().optional();
 
@@ -54,6 +56,8 @@ export async function POST(req: Request) {
         },
       });
     });
+
+    await markOnboardingFirstDeal(getPrisma(), organizationId);
 
     return NextResponse.json({ ok: true, data: created }, { status: 201 });
   });

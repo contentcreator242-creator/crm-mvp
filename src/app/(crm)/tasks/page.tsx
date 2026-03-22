@@ -1,6 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 import { getPrisma } from "@/lib/db/prisma";
 import { resolveOrganizationId } from "@/lib/auth/organization";
 import { crmStatusBadgeClass } from "@/lib/ui/crmBadges";
@@ -36,15 +38,25 @@ export default async function TasksPage() {
     if (!userId) redirect("/sign-in");
     if (!orgId) redirect("/organization/create");
 
-    const taskId = String(formData.get("taskId") || "");
+    const taskIdRaw = formData.get("taskId")?.toString()?.trim() ?? "";
+    const taskIdParsed = z.string().uuid().safeParse(taskIdRaw);
+    if (!taskIdParsed.success) redirect("/tasks");
+
     const prismaInner = getPrisma();
     const organizationIdInner = await resolveOrganizationId(orgId, orgSlug ?? null);
 
-    await prismaInner.task.updateMany({
-      where: { id: taskId, organizationId: organizationIdInner },
+    const result = await prismaInner.task.updateMany({
+      where: { id: taskIdParsed.data, organizationId: organizationIdInner },
       data: { status: "done" },
     });
 
+    console.log("[markDone]", {
+      taskId: taskIdParsed.data,
+      organizationId: organizationIdInner,
+      updatedCount: result.count,
+    });
+
+    revalidatePath("/tasks");
     redirect("/tasks");
   }
 

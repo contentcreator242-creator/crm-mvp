@@ -11,11 +11,6 @@ import {
 import { RecaptchaCheckbox } from "@/components/embed/RecaptchaCheckbox";
 import { ensureRecaptchaV3Ready, executeRecaptchaV3 } from "@/components/embed/recaptchaV3Client";
 import { normalizeLeadCaptureKey } from "@/lib/embed/leadCaptureKey";
-import {
-  type OrganizationBrandingFields,
-  darkerHex,
-  effectivePrimaryHex,
-} from "@/lib/settings/organizationBranding";
 
 const STEP_LABELS = ["Personal details", "Business details", "Funding request"] as const;
 
@@ -35,14 +30,12 @@ function validatePanel(form: HTMLFormElement, panel: number): boolean {
   return true;
 }
 
-function FormInner({ branding }: { branding: OrganizationBrandingFields | null }) {
+function FormInner({ organizationName }: { organizationName: string | null }) {
   const searchParams = useSearchParams();
   const key = useMemo(
     () => normalizeLeadCaptureKey(searchParams.get("key") ?? ""),
     [searchParams],
   );
-  const primary = effectivePrimaryHex(branding?.primaryColorHex);
-  const primaryHover = darkerHex(primary);
   const formRef = useRef<HTMLFormElement>(null);
   const [step, setStep] = useState(1);
   const [status, setStatus] = useState<"idle" | "loading" | "ok" | "err">("idle");
@@ -170,6 +163,8 @@ function FormInner({ branding }: { branding: OrganizationBrandingFields | null }
     "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-200/90";
   const labelClass = "block text-sm font-semibold text-slate-700";
 
+  const headerTitle = organizationName ?? "Get matched with business lenders";
+
   if (!key) {
     return (
       <div className="text-sm leading-relaxed text-slate-700">
@@ -213,19 +208,10 @@ function FormInner({ branding }: { branding: OrganizationBrandingFields | null }
         </p>
       ) : null}
 
-      {/* Header (inside card — page supplies outer shell) */}
+      {/* Header */}
       <div className="mb-5 border-b border-slate-100 pb-5">
-        {branding?.logoUrl ? (
-          <div className="mb-4 flex justify-center">
-            <img
-              src={branding.logoUrl}
-              alt=""
-              className="max-h-16 max-w-[220px] object-contain"
-            />
-          </div>
-        ) : null}
         <h1 className="text-center text-xl font-semibold leading-snug tracking-tight text-slate-900 sm:text-left">
-          {branding ? branding.displayName : "Get matched with business lenders"}
+          {headerTitle}
         </h1>
         <p className="mt-2 text-center text-sm leading-relaxed text-slate-600 sm:text-left">
           Tell us about your business and we&apos;ll match you with suitable lenders — no obligation
@@ -242,10 +228,9 @@ function FormInner({ branding }: { branding: OrganizationBrandingFields | null }
             {[1, 2, 3].map((n) => (
               <div
                 key={n}
-                className="h-1.5 flex-1 rounded-full transition-colors"
-                style={{
-                  backgroundColor: n <= step ? primary : "#e2e8f0",
-                }}
+                className={`h-1.5 flex-1 rounded-full transition-colors ${
+                  n <= step ? "bg-blue-600" : "bg-slate-200"
+                }`}
               />
             ))}
           </div>
@@ -428,29 +413,15 @@ function FormInner({ branding }: { branding: OrganizationBrandingFields | null }
               <button
                 type="button"
                 onClick={goNext}
-                className="w-full rounded-xl px-5 py-3.5 text-base font-semibold text-white shadow-md transition hover:opacity-95 sm:min-w-[160px]"
-                style={{ backgroundColor: primary, boxShadow: `0 4px 14px ${primary}40` }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = primaryHover;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = primary;
-                }}
+                className="w-full rounded-xl bg-blue-600 px-5 py-3.5 text-base font-semibold text-white shadow-md shadow-blue-600/25 transition hover:bg-blue-700 sm:min-w-[160px]"
               >
                 Next
               </button>
             ) : (
               <button
                 type="button"
-                className="w-full rounded-xl px-5 py-3.5 text-base font-semibold text-white shadow-md transition enabled:cursor-pointer disabled:opacity-60 sm:min-w-[200px]"
-                style={{ backgroundColor: primary, boxShadow: `0 4px 14px ${primary}40` }}
+                className="w-full rounded-xl bg-blue-600 px-5 py-3.5 text-base font-semibold text-white shadow-md shadow-blue-600/25 transition enabled:cursor-pointer hover:bg-blue-700 disabled:opacity-60 sm:min-w-[200px]"
                 disabled={status === "loading"}
-                onMouseEnter={(e) => {
-                  if (!e.currentTarget.disabled) e.currentTarget.style.backgroundColor = primaryHover;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = primary;
-                }}
                 onClick={() => void runLeadSubmit()}
               >
                 {status === "loading" ? "Getting matches…" : "Get Matches"}
@@ -470,9 +441,9 @@ function FormInner({ branding }: { branding: OrganizationBrandingFields | null }
 }
 
 export default function EmbedLeadForm({
-  branding,
+  organizationName,
 }: {
-  branding: OrganizationBrandingFields | null;
+  organizationName: string | null;
 }) {
   return (
     <Suspense
@@ -482,7 +453,7 @@ export default function EmbedLeadForm({
         </div>
       }
     >
-      <FormInner branding={branding} />
+      <FormInner organizationName={organizationName} />
     </Suspense>
   );
 }

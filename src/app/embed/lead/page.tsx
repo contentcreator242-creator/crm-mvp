@@ -1,6 +1,6 @@
 import { getPrisma } from "@/lib/db/prisma";
 import { normalizeLeadCaptureKey } from "@/lib/embed/leadCaptureKey";
-import { getBrandingByLeadCaptureKey } from "@/lib/settings/organizationBranding";
+import { getOrganizationNameByLeadCaptureKey } from "@/lib/settings/organizationName";
 import EmbedLeadForm from "./EmbedLeadForm";
 
 export default async function EmbedLeadPage({
@@ -10,7 +10,7 @@ export default async function EmbedLeadPage({
 }) {
   const key = normalizeLeadCaptureKey((await searchParams).key ?? "");
   const prisma = getPrisma();
-  const branding = key ? await getBrandingByLeadCaptureKey(prisma, key) : null;
+  const organizationName = key ? await getOrganizationNameByLeadCaptureKey(prisma, key) : null;
 
   return (
     <div
@@ -19,7 +19,7 @@ export default async function EmbedLeadPage({
     >
       <div className="mx-auto w-full max-w-md">
         <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-lg shadow-slate-200/50 sm:p-8">
-          <EmbedLeadForm branding={branding} />
+          <EmbedLeadForm organizationName={organizationName} />
         </div>
       </div>
     </div>

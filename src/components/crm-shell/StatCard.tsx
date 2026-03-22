@@ -33,14 +33,14 @@ export function StatCard({
 
   return (
     <div
-      className={`adm-stat-card relative overflow-hidden rounded-2xl border bg-gradient-to-br ${toneAccent} to-white p-5 shadow-adm ${toneBorder}`}
+      className={`adm-stat-card relative overflow-hidden rounded-2xl border bg-gradient-to-br ${toneAccent} to-white p-6 shadow-adm sm:p-7 ${toneBorder}`}
     >
       {icon ? (
-        <div className="absolute right-4 top-4 text-slate-300 opacity-90 [&_svg]:h-8 [&_svg]:w-8">{icon}</div>
+        <div className="absolute right-5 top-5 text-slate-300 opacity-90 [&_svg]:h-8 [&_svg]:w-8">{icon}</div>
       ) : null}
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight text-slate-900">{value}</p>
-      {hint ? <p className="mt-2 text-xs text-slate-500">{hint}</p> : null}
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="mt-3 text-3xl font-semibold tabular-nums tracking-tight text-slate-900 sm:text-4xl">{value}</p>
+      {hint ? <p className="mt-3 text-xs text-slate-500">{hint}</p> : null}
     </div>
   );
 }

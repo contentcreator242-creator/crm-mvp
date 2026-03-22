@@ -1,6 +1,8 @@
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 import { getPrisma } from "@/lib/db/prisma";
 import { withTenantDb } from "@/lib/db/tenantDb";
 import { resolveOrganizationId } from "@/lib/auth/organization";
@@ -18,6 +20,7 @@ import {
   buildLenderMatchDisplayRows,
   groupDisplayRowsByTier,
 } from "@/lib/ui/lenderMatchDisplay";
+import { matchLenderIdFromDisplayName } from "@/lib/lenders/matchLenderIdByDisplayName";
 import { LenderMatchSection } from "./LenderMatchSection";
 import { ContentCard, PageHeader } from "@/components/crm-shell";
 import {
@@ -32,6 +35,10 @@ import {
 } from "@/lib/settings/memberReplyToEmail";
 import { parseEmailSentFromActivity } from "@/lib/leads/emailSentActivity";
 import { listEmailTemplatesForOrganization } from "@/lib/email/emailTemplateQueries";
+import { trackLendersFromLeadAction } from "./trackLendersFromLeadAction";
+import { refreshLenderMatchesForLeadAction } from "./refreshLenderMatchesAction";
+import { RefreshLenderMatchesForm } from "./RefreshLenderMatchesForm";
+import { hasCoreFinanceSignalsForMatching, leadToMatchSignals } from "@/lib/matching/runCrmLeadMatching";
 
 function formatDateTime(date: Date) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -55,14 +62,17 @@ function formatDateShort(date: Date) {
 
 export default async function LeadDetailsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ refresh?: string }>;
 }) {
   const { userId, orgId, orgSlug } = await auth();
   if (!userId) redirect("/sign-in");
   if (!orgId) redirect("/organization/create");
 
   const { id } = await params;
+  const refreshQuery = searchParams ? (await searchParams).refresh : undefined;
   const leadId = id;
   const prisma = getPrisma();
   const organizationId = await resolveOrganizationId(orgId, orgSlug ?? null);
@@ -178,8 +188,31 @@ export default async function LeadDetailsPage({
         }));
 
   const displayRows = buildLenderMatchDisplayRows(rawRows);
+  const orgLendersForMatch = await prisma.lender.findMany({
+    where: { organizationId },
+    select: { id: true, name: true },
+  });
+  const displayRowsWithLenders = displayRows.map((r) => ({
+    ...r,
+    resolvedLenderId: matchLenderIdFromDisplayName(orgLendersForMatch, r.lenderName),
+  }));
   const { good: goodMatches, borderline: borderlineMatches, failed: failedMatches } =
-    groupDisplayRowsByTier(displayRows);
+    groupDisplayRowsByTier(displayRowsWithLenders);
+
+  const canRefreshMatches = hasCoreFinanceSignalsForMatching(leadToMatchSignals(lead));
+
+  const refreshMatchesSlot = (
+    <RefreshLenderMatchesForm
+      leadId={leadId}
+      action={refreshLenderMatchesForLeadAction}
+      disabled={!canRefreshMatches}
+      disabledReason={
+        canRefreshMatches
+          ? undefined
+          : "Add at least one funding field (e.g. requested amount, revenue, time trading, credit, or business type)."
+      }
+    />
+  );
 
   async function deleteLead() {
     "use server";
@@ -211,33 +244,46 @@ export default async function LeadDetailsPage({
     const prismaInner = getPrisma();
     const organizationIdInner = await resolveOrganizationId(orgId, orgSlug ?? null);
 
+    const leadIdFromForm = formData.get("leadId")?.toString()?.trim() ?? "";
+    const targetLeadIdParsed = z.string().uuid().safeParse(leadIdFromForm);
+    const targetLeadId = targetLeadIdParsed.success ? targetLeadIdParsed.data : leadId;
+    if (!z.string().uuid().safeParse(targetLeadId).success) redirect("/leads");
+
     const parsed = leadWorkflowStatusSchema.safeParse(
       formData.get("workflowStatus")?.toString()?.trim(),
     );
-    if (!parsed.success) redirect(`/leads/${leadId}`);
+    if (!parsed.success) redirect(`/leads/${targetLeadId}`);
 
     const existing = await prismaInner.lead.findFirst({
-      where: { id: leadId, organizationId: organizationIdInner },
+      where: { id: targetLeadId, organizationId: organizationIdInner },
       select: { status: true },
     });
     if (!existing) redirect("/leads");
 
-    await prismaInner.lead.updateMany({
-      where: { id: leadId, organizationId: organizationIdInner },
+    const result = await prismaInner.lead.updateMany({
+      where: { id: targetLeadId, organizationId: organizationIdInner },
       data: { status: parsed.data },
+    });
+
+    console.log("[updateLeadWorkflowStatus]", {
+      targetLeadId,
+      nextStatus: parsed.data,
+      organizationId: organizationIdInner,
+      updatedCount: result.count,
     });
 
     if ((existing.status ?? "").toLowerCase() !== parsed.data.toLowerCase()) {
       await createLeadActivity(prismaInner, {
         organizationId: organizationIdInner,
-        leadId,
+        leadId: targetLeadId,
         eventType: "status_changed",
         description: `Status changed from ${existing.status ?? "new"} to ${parsed.data}.`,
         metadata: { from: existing.status ?? null, to: parsed.data },
       });
     }
 
-    redirect(`/leads/${leadId}`);
+    revalidatePath(`/leads/${targetLeadId}`);
+    redirect(`/leads/${targetLeadId}`);
   }
 
   async function addNote(formData: FormData) {
@@ -264,83 +310,6 @@ export default async function LeadDetailsPage({
       leadId,
       eventType: "note",
       description: `Note added: ${content.length > 120 ? `${content.slice(0, 120)}...` : content}`,
-    });
-
-    redirect(`/leads/${leadId}`);
-  }
-
-  async function takeLenderAction(formData: FormData) {
-    "use server";
-
-    const { userId, orgId, orgSlug } = await auth();
-    if (!userId) redirect("/sign-in");
-    if (!orgId) redirect("/organization/create");
-
-    const prismaInner = getPrisma();
-    const organizationIdInner = await resolveOrganizationId(orgId, orgSlug ?? null);
-    const lenderName = formData.get("lenderName")?.toString()?.trim() ?? "";
-    const actionType = formData.get("actionType")?.toString()?.trim();
-    if (!lenderName) redirect(`/leads/${leadId}`);
-    if (actionType !== "proceed" && actionType !== "submitted") redirect(`/leads/${leadId}`);
-
-    const leadRow = await prismaInner.lead.findFirst({
-      where: { id: leadId, organizationId: organizationIdInner },
-      select: { id: true, firstName: true, lastName: true, status: true },
-    });
-    if (!leadRow) redirect("/leads");
-
-    const nextLeadStatus = actionType === "submitted" ? "submitted" : "in_progress";
-    if ((leadRow.status ?? "").toLowerCase() !== nextLeadStatus) {
-      await prismaInner.lead.updateMany({
-        where: { id: leadId, organizationId: organizationIdInner },
-        data: { status: nextLeadStatus },
-      });
-      await createLeadActivity(prismaInner, {
-        organizationId: organizationIdInner,
-        leadId,
-        eventType: "status_changed",
-        description: `Status changed from ${leadRow.status ?? "new"} to ${nextLeadStatus}.`,
-        metadata: { from: leadRow.status ?? null, to: nextLeadStatus },
-      });
-    }
-
-    const tenantRow = await prismaInner.tenant.upsert({
-      where: { clerkOrgId: orgId },
-      create: { clerkOrgId: orgId, isBeta: false },
-      update: {},
-      select: { id: true },
-    });
-
-    const dealTitle = `Lender application: ${lenderName}`;
-    const existingDeal = await prismaInner.deal.findFirst({
-      where: { organizationId: organizationIdInner, contactId: leadId, title: dealTitle },
-      select: { id: true },
-    });
-    const deal =
-      existingDeal ??
-      (await prismaInner.deal.create({
-        data: {
-          tenantId: tenantRow.id,
-          organizationId: organizationIdInner,
-          contactId: leadId,
-          title: dealTitle,
-          status: actionType === "submitted" ? "qualified" : "new",
-          name: `${leadRow.firstName} ${leadRow.lastName ?? ""}`.trim(),
-          stage: actionType === "submitted" ? "qualified" : "new",
-        },
-        select: { id: true },
-      }));
-
-    await createLeadActivity(prismaInner, {
-      organizationId: organizationIdInner,
-      leadId,
-      dealId: deal.id,
-      eventType: "lender_action",
-      description:
-        actionType === "submitted"
-          ? `Marked ${lenderName} as submitted and linked deal.`
-          : `Proceeded with ${lenderName} and linked deal.`,
-      metadata: { lenderName, actionType },
     });
 
     redirect(`/leads/${leadId}`);
@@ -379,6 +348,23 @@ export default async function LeadDetailsPage({
           </>
         }
       />
+
+      {refreshQuery === "ok" ? (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Lender matches updated using the current lead details.
+        </div>
+      ) : null}
+      {refreshQuery === "insufficient" ? (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          Not enough funding detail on this lead to run matching. Add fields such as requested amount or annual
+          revenue, then try again.
+        </div>
+      ) : null}
+      {refreshQuery === "error" ? (
+        <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          Matching could not be completed. Try again in a moment or check that lenders are set up for your workspace.
+        </div>
+      ) : null}
 
       <ContentCard title="Profile & criteria" description="Captured fields and workflow." padding="md">
           {(() => {
@@ -423,64 +409,84 @@ export default async function LeadDetailsPage({
             );
           })()}
 
-          <div className="grid gap-5 text-sm sm:grid-cols-1">
-            <div>
-              <p className="crm-field-label">Name</p>
-              <p className="crm-field-value mt-1.5">
-                {lead.firstName} {lead.lastName ?? ""}
+          <div className="space-y-8 text-sm">
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <p className="crm-field-label">Name</p>
+                <p className="crm-field-value mt-1.5">
+                  {lead.firstName} {lead.lastName ?? ""}
+                </p>
+              </div>
+              <div>
+                <p className="crm-field-label">Email</p>
+                <p className="crm-field-value mt-1.5">{lead.email ?? "—"}</p>
+              </div>
+              <div>
+                <p className="crm-field-label">Phone</p>
+                <p className="crm-field-value mt-1.5">{lead.phone ?? "—"}</p>
+              </div>
+              <div>
+                <p className="crm-field-label">Company</p>
+                <p className="crm-field-value mt-1.5">{lead.companyName ?? "—"}</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200/90 bg-slate-50/80 p-5 shadow-inner">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Funding &amp; business</p>
+              <p className="mt-1 text-xs text-slate-600">
+                Used for lender matching and deal setup — edit the lead to update these values.
               </p>
+              <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <dt className="crm-field-label">Requested amount</dt>
+                  <dd className="crm-field-value mt-1.5 tabular-nums">{formatUsdWhole(lead.requestedAmount)}</dd>
+                </div>
+                <div>
+                  <dt className="crm-field-label">Annual revenue</dt>
+                  <dd className="crm-field-value mt-1.5 tabular-nums">{formatUsdWhole(lead.annualRevenue)}</dd>
+                </div>
+                <div>
+                  <dt className="crm-field-label">Time trading</dt>
+                  <dd className="crm-field-value mt-1.5 tabular-nums">
+                    {lead.timeTradingMonths != null ? `${lead.timeTradingMonths} months` : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="crm-field-label">Credit issues</dt>
+                  <dd className="crm-field-value mt-1.5">{formatCreditIssues(lead.creditIssues)}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="crm-field-label">Business type</dt>
+                  <dd className="crm-field-value mt-1.5">{lead.businessType ?? "—"}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="crm-field-label">Last matched</dt>
+                  <dd className="crm-field-value mt-1.5 tabular-nums">
+                    {lead.lastMatchedAt != null ? `${formatDateTime(lead.lastMatchedAt)} UTC` : "—"}
+                  </dd>
+                </div>
+              </dl>
             </div>
-            <div>
-              <p className="crm-field-label">Email</p>
-              <p className="crm-field-value mt-1.5">{lead.email ?? "—"}</p>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <p className="crm-field-label">Workflow</p>
+                <div className="mt-1.5">
+                  <LeadWorkflowPanel
+                    leadId={leadId}
+                    currentStatusRaw={lead.status}
+                    updateWorkflowStatus={updateLeadWorkflowStatus}
+                  />
+                </div>
+              </div>
+              <div>
+                <p className="crm-field-label">Created</p>
+                <p className="mt-1.5 font-normal tabular-nums text-slate-800">
+                  {formatDateTime(lead.createdAt)}
+                </p>
+              </div>
             </div>
-            <div className="sm:col-span-1">
-              <p className="crm-field-label">Workflow</p>
-              <LeadWorkflowPanel
-                currentStatusRaw={lead.status}
-                updateWorkflowStatus={updateLeadWorkflowStatus}
-              />
-            </div>
-            <div>
-              <p className="crm-field-label">Created</p>
-              <p className="mt-1.5 font-normal tabular-nums text-slate-800">
-                {formatDateTime(lead.createdAt)}
-              </p>
-            </div>
-            <div>
-              <p className="crm-field-label">Phone</p>
-              <p className="crm-field-value mt-1.5">{lead.phone ?? "—"}</p>
-            </div>
-            <div>
-              <p className="crm-field-label">Company</p>
-              <p className="crm-field-value mt-1.5">{lead.companyName ?? "—"}</p>
-            </div>
-            <div>
-              <p className="crm-field-label">Requested amount</p>
-              <p className="crm-field-value mt-1.5 tabular-nums">
-                {formatUsdWhole(lead.requestedAmount)}
-              </p>
-            </div>
-            <div>
-              <p className="crm-field-label">Annual revenue</p>
-              <p className="crm-field-value mt-1.5 tabular-nums">
-                {formatUsdWhole(lead.annualRevenue)}
-              </p>
-            </div>
-            <div>
-              <p className="crm-field-label">Time trading</p>
-              <p className="crm-field-value mt-1.5 tabular-nums">
-                {lead.timeTradingMonths != null ? `${lead.timeTradingMonths} mo` : "—"}
-              </p>
-            </div>
-            <div>
-              <p className="crm-field-label">Credit issues</p>
-              <p className="crm-field-value mt-1.5">{formatCreditIssues(lead.creditIssues)}</p>
-            </div>
-            <div>
-              <p className="crm-field-label">Business type</p>
-              <p className="crm-field-value mt-1.5">{lead.businessType ?? "—"}</p>
-            </div>
+
             <div>
               <p className="crm-field-label">Notes</p>
               <p className="mt-1.5 text-sm leading-relaxed text-slate-800">{lead.notes ?? "—"}</p>
@@ -488,19 +494,19 @@ export default async function LeadDetailsPage({
           </div>
       </ContentCard>
 
-        <div className="mt-8">
+        <div className="mt-10 lg:mt-12">
         {!latestLenderMatch ? (
-          <ContentCard title="Lender fit" padding="md">
+          <ContentCard title="Lender fit" padding="md" headerExtra={refreshMatchesSlot}>
             <p className="text-sm text-slate-600">
               No match results for this lead yet. Rankings are created when someone submits your{" "}
               <Link href="/settings/integrations" className="font-semibold text-slate-900 underline underline-offset-2">
                 public lead form
               </Link>
-              .
+              , or use <span className="font-semibold">Refresh matches</span> when funding details are filled in.
             </p>
           </ContentCard>
-        ) : displayRows.length === 0 ? (
-          <ContentCard title="Lender fit" padding="md">
+        ) : displayRowsWithLenders.length === 0 ? (
+          <ContentCard title="Lender fit" padding="md" headerExtra={refreshMatchesSlot}>
             <p className="text-xs text-slate-500">
               Last run {formatDateTime(latestLenderMatch.createdAt)} UTC · 0 lenders
             </p>
@@ -514,21 +520,23 @@ export default async function LeadDetailsPage({
           </ContentCard>
         ) : (
           <LenderMatchSection
+            leadId={leadId}
             latestLenderMatch={latestLenderMatch}
-            displayRows={displayRows}
+            displayRows={displayRowsWithLenders}
             goodMatches={goodMatches}
             borderlineMatches={borderlineMatches}
             failedMatches={failedMatches}
             hasJsonFallback={
               latestLenderMatch.explanations.length === 0 && fallbackRanked.length > 0
             }
-            onTakeAction={takeLenderAction}
+            trackLendersAction={trackLendersFromLeadAction}
+            refreshMatchesSlot={refreshMatchesSlot}
           />
         )}
         </div>
 
         <ContentCard
-          className="mt-8"
+          className="mt-10 lg:mt-12"
           title="Tasks"
           padding="md"
           headerExtra={
@@ -555,7 +563,7 @@ export default async function LeadDetailsPage({
         </ContentCard>
 
         <ContentCard
-          className="mt-8"
+          className="mt-10 lg:mt-12"
           title="Emails"
           description="Messages sent to this lead from the CRM in this workspace."
           padding="md"
@@ -659,7 +667,7 @@ export default async function LeadDetailsPage({
           )}
         </ContentCard>
 
-        <ContentCard className="mt-8" title="Notes" padding="md">
+        <ContentCard className="mt-10 lg:mt-12" title="Notes" padding="md">
           <form action={addNote} className="mb-4 space-y-2">
             <label htmlFor="lead-note-content" className="crm-field-label">
               Add note

@@ -10,8 +10,8 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="adm-empty flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-6 py-14 text-center">
-      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-adm ring-1 ring-slate-200/80">
+    <div className="adm-empty flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-8 py-16 text-center sm:px-10">
+      <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-adm ring-1 ring-slate-200/80">
         <svg
           className="h-7 w-7 text-slate-400"
           fill="none"
@@ -27,9 +27,9 @@ export function EmptyState({
           />
         </svg>
       </div>
-      <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-      {description ? <p className="mt-2 max-w-sm text-sm text-slate-600">{description}</p> : null}
-      {action ? <div className="mt-6">{action}</div> : null}
+      <h3 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h3>
+      {description ? <p className="mt-3 max-w-sm text-sm leading-relaxed text-slate-600">{description}</p> : null}
+      {action ? <div className="mt-8">{action}</div> : null}
     </div>
   );
 }

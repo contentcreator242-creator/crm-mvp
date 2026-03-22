@@ -75,9 +75,8 @@ export async function resolveOrganizationId(clerkOrganizationId: string, name?: 
       clerkOrganizationId,
       name: name ?? null,
     },
-    update: {
-      name: name ?? undefined,
-    },
+    // Do not sync `name` from Clerk on every request — it is user-editable in Settings / onboarding.
+    update: {},
     select: { id: true },
   });
 

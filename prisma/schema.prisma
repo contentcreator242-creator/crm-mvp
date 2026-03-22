@@ -14,10 +14,19 @@ model Organization {
   /// Public id for lead capture / embed forms (per workspace). Backfilled in app when null.
   leadCapturePublicKey String? @unique @map("lead_capture_public_key")
 
-  /// Workspace branding (optional). Display name for emails/embed; falls back to `name` when null.
-  brandingCompanyName String? @map("branding_company_name")
-  brandingLogoUrl String? @map("branding_logo_url")
-  brandingPrimaryColorHex String? @map("branding_primary_color_hex")
+  /// Set when the org finishes the in-app onboarding wizard (`/onboarding`). Null = show onboarding for CRM routes.
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at")
+
+  /// Stripe Billing (Lendex subscription) — synced from Checkout + webhooks.
+  stripeCustomerId String? @map("stripe_customer_id")
+  stripeSubscriptionId String? @unique @map("stripe_subscription_id")
+  subscriptionStatus String? @map("subscription_status")
+
+  /// Dashboard "Getting started" checklist — first time each milestone happened (null = not yet).
+  onboardingFirstLeadAt DateTime? @map("onboarding_first_lead_at")
+  onboardingFirstLenderSelectionAt DateTime? @map("onboarding_first_lender_selection_at")
+  onboardingFirstDealAt DateTime? @map("onboarding_first_deal_at")
+  onboardingFirstSubmissionTrackedAt DateTime? @map("onboarding_first_submission_tracked_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -35,8 +44,20 @@ model Organization {
 
   memberEmailPreferences OrganizationMemberEmailPreference[]
   emailTemplates EmailTemplate[]
+  dealLenderSubmissions DealLenderSubmission[]
 
   @@map("organizations")
+}
+
+/// One welcome email per Clerk user (dedupe across refresh / retries).
+model UserWelcomeEmailLog {
+  id String @id @default(uuid())
+
+  clerkUserId String @unique @map("clerk_user_id")
+  sentAt DateTime @default(now()) @map("sent_at")
+  resendMessageId String? @map("resend_message_id")
+
+  @@map("user_welcome_emails")
 }
 
 /// Custom lead email templates (workspace-scoped).
@@ -134,6 +155,22 @@ model Company {
   @@map("companies")
 }
 
+enum DealSubmissionStatus {
+  not_submitted
+  submitted
+  approved
+  rejected
+}
+
+/// Per-lender pipeline on a deal (brokers track multiple lender applications externally).
+enum DealLenderSubmissionStatus {
+  selected
+  submitted
+  approved
+  declined
+  funded
+}
+
 model Deal {
   id String @id @default(uuid())
 
@@ -155,18 +192,52 @@ model Deal {
   companyId String? @map("company_id")
   contactId String? @map("contact_id")
 
+  /// Legacy single-lender link; prefer `dealLenderSubmissions` for new data.
+  lenderId String? @map("lender_id")
+  submissionStatus DealSubmissionStatus @default(not_submitted) @map("submission_status")
+  submissionDate DateTime? @map("submission_date")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   lead Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lender Lender? @relation(fields: [lenderId], references: [id], onDelete: SetNull)
   leadActivities LeadActivity[]
+  dealLenderSubmissions DealLenderSubmission[]
 
   @@index([tenantId])
   @@index([organizationId])
   @@index([leadId])
+  @@index([lenderId])
   @@map("deals")
+}
+
+model DealLenderSubmission {
+  id String @id @default(uuid())
+
+  organizationId String @map("organization_id")
+  dealId String @map("deal_id")
+  lenderId String @map("lender_id")
+
+  status DealLenderSubmissionStatus @default(selected)
+
+  submittedAt DateTime? @map("submitted_at")
+  decisionAt DateTime? @map("decision_at")
+  notes String? @map("notes") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  lender Lender @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId, lenderId])
+  @@index([organizationId])
+  @@index([dealId])
+  @@map("deal_lender_submissions")
 }
 
 model Task {
@@ -211,6 +282,9 @@ model Lead {
   timeTradingMonths Int? @map("time_trading_months")
   creditIssues Boolean? @map("credit_issues")
   businessType String? @map("business_type")
+
+  /// When lender matching last completed successfully for this lead (CRM or public flow).
+  lastMatchedAt DateTime? @map("last_matched_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -300,6 +374,8 @@ model Lender {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deals Deal[]
+  dealLenderSubmissions DealLenderSubmission[]
 
   @@index([organizationId])
   @@index([organizationId, isActive])

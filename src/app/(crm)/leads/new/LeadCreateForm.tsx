@@ -2,12 +2,12 @@
 
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
-import { LEAD_WORKFLOW_OPTIONS } from "@/lib/leads/leadWorkflowStatus";
+import { LeadCoreFormFields } from "@/components/leads/LeadCoreFormFields";
 
-type FormState = {
+export type LeadCreateFormState = {
   ok: boolean;
   message?: string;
-  errors?: Partial<Record<"firstName" | "email", string>>;
+  errors?: Partial<Record<string, string>>;
 };
 
 function SubmitButton() {
@@ -19,7 +19,7 @@ function SubmitButton() {
       disabled={pending}
       className="btn-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
     >
-      {pending ? "Creating..." : "Create Lead"}
+      {pending ? "Creating..." : "Create lead"}
     </button>
   );
 }
@@ -27,14 +27,16 @@ function SubmitButton() {
 export function LeadCreateForm({
   action,
 }: {
-  action: (state: FormState, formData: FormData) => Promise<FormState>;
+  action: (state: LeadCreateFormState, formData: FormData) => Promise<LeadCreateFormState>;
 }) {
-  const [state, formAction] = useActionState<FormState, FormData>(action, {
+  const [state, formAction] = useActionState<LeadCreateFormState, FormData>(action, {
     ok: false,
   });
 
+  const err = state.errors ?? {};
+
   return (
-    <form action={formAction} className="space-y-5 rounded-2xl border border-slate-200/90 bg-white p-6 shadow-adm">
+    <form action={formAction} className="space-y-10 rounded-2xl border border-slate-200/90 bg-white p-7 shadow-adm sm:p-8">
       {state.message ? (
         <div
           className={`rounded-lg border px-3 py-2 text-sm ${
@@ -47,99 +49,7 @@ export function LeadCreateForm({
         </div>
       ) : null}
 
-      <div className="space-y-4">
-        <div>
-          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-            First Name *
-          </label>
-          <input
-            name="firstName"
-            required
-            className={`w-full rounded-lg border bg-white px-3 py-2.5 text-sm outline-none ring-slate-300 focus:ring ${
-              state.errors?.firstName ? "border-rose-400" : "border-slate-300"
-            }`}
-          />
-          {state.errors?.firstName ? (
-            <p className="mt-1 text-xs text-rose-600">{state.errors.firstName}</p>
-          ) : null}
-        </div>
-        <div>
-          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-            Last Name
-          </label>
-          <input
-            name="lastName"
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none ring-slate-300 focus:ring"
-          />
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div>
-          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-            Email *
-          </label>
-          <input
-            name="email"
-            type="email"
-            required
-            className={`w-full rounded-lg border bg-white px-3 py-2.5 text-sm outline-none ring-slate-300 focus:ring ${
-              state.errors?.email ? "border-rose-400" : "border-slate-300"
-            }`}
-          />
-          {state.errors?.email ? (
-            <p className="mt-1 text-xs text-rose-600">{state.errors.email}</p>
-          ) : null}
-        </div>
-        <div>
-          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-            Phone
-          </label>
-          <input
-            name="phone"
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none ring-slate-300 focus:ring"
-          />
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div>
-          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-            Company Name
-          </label>
-          <input
-            name="companyName"
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none ring-slate-300 focus:ring"
-          />
-        </div>
-        <div>
-          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-            Status
-          </label>
-          <select
-            name="status"
-            defaultValue="new"
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none ring-slate-300 focus:ring"
-          >
-            {LEAD_WORKFLOW_OPTIONS.map(({ value, label }) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div>
-        <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-          Notes
-        </label>
-        <textarea
-          name="notes"
-          rows={7}
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none ring-slate-300 focus:ring"
-        />
-      </div>
+      <LeadCoreFormFields err={err} />
 
       <div className="pt-1">
         <SubmitButton />
@@ -147,4 +57,3 @@ export function LeadCreateForm({
     </form>
   );
 }
-

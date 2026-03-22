@@ -8,7 +8,7 @@ import {
   leadWorkflowBadgeClass,
 } from "@/lib/leads/leadWorkflowStatus";
 import { formatUsdWhole, leadSourceSummary } from "@/lib/ui/leadDisplay";
-import { PageHeader } from "@/components/crm-shell";
+import { ContentCard, PageHeader } from "@/components/crm-shell";
 
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -69,28 +69,35 @@ export default async function LeadsPage({
         </div>
       ) : null}
 
-      <div className="adm-table-wrap">
-        <table className="adm-table">
-          <thead className="adm-thead">
-            <tr>
-              <th className="adm-th">Full name</th>
-              <th className="adm-th">Company</th>
-              <th className="adm-th">Email</th>
-              <th className="adm-th">Source</th>
-              <th className="adm-th">Requested</th>
-              <th className="adm-th">Status</th>
-              <th className="adm-th">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {leads.length === 0 ? (
-              <tr className="adm-tr">
-                <td className="adm-td py-12 text-center text-slate-500" colSpan={7}>
-                  No leads yet. Create your first lead.
-                </td>
+      {leads.length === 0 ? (
+        <ContentCard padding="lg">
+          <div className="mx-auto max-w-md text-center">
+            <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">Leads</p>
+            <p className="mt-2 text-lg font-semibold text-slate-900">No leads yet</p>
+            <p className="mt-2 text-sm text-slate-600">
+              When you add leads—manually or by form—they&apos;ll show up here with status and source.
+            </p>
+            <Link href="/leads/new" className="adm-btn-primary mt-6 inline-flex text-sm">
+              Create lead
+            </Link>
+          </div>
+        </ContentCard>
+      ) : (
+        <div className="adm-table-wrap">
+          <table className="adm-table">
+            <thead className="adm-thead">
+              <tr>
+                <th className="adm-th">Full name</th>
+                <th className="adm-th">Company</th>
+                <th className="adm-th">Email</th>
+                <th className="adm-th">Source</th>
+                <th className="adm-th">Requested</th>
+                <th className="adm-th">Status</th>
+                <th className="adm-th">Created</th>
               </tr>
-            ) : (
-              leads.map((lead) => (
+            </thead>
+            <tbody>
+              {leads.map((lead) => (
                 <tr key={lead.id} className="adm-tr">
                   <td className="adm-td">
                     <Link
@@ -139,11 +146,11 @@ export default async function LeadsPage({
                     </Link>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

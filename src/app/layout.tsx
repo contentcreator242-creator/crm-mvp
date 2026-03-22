@@ -3,8 +3,8 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "CRM MVP",
-  description: "Multi-tenant CRM for finance workflows",
+  title: "Lendex",
+  description: "Match leads to lenders, track submissions, and run deal workflow in one workspace.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

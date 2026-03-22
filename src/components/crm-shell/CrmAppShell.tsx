@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { UserButton } from "@clerk/nextjs";
-import { Logo } from "@/components/brand/Logo";
+import { Logo, LENDEX_PRODUCT_OF_AERO_SYSTEMS } from "@/components/brand";
 import { CRM_NAV_MAIN, CRM_NAV_SECONDARY } from "./nav-config";
 
 function NavLink({ href, label }: { href: string; label: string }) {
@@ -14,7 +14,7 @@ function NavLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className={`adm-sidebar-link group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
+      className={`adm-sidebar-link group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-all ${
         active
           ? "bg-white/10 text-white shadow-inner ring-1 ring-white/10"
           : "text-slate-400 hover:bg-white/5 hover:text-white"
@@ -31,7 +31,14 @@ function NavLink({ href, label }: { href: string; label: string }) {
   );
 }
 
-export function CrmAppShell({ children }: { children: React.ReactNode }) {
+export function CrmAppShell({
+  children,
+  workspaceDisplayName,
+}: {
+  children: React.ReactNode;
+  /** Shown in sidebar / top bar — organization name */
+  workspaceDisplayName: string;
+}) {
   const [mobileNav, setMobileNav] = useState(false);
 
   return (
@@ -52,37 +59,39 @@ export function CrmAppShell({ children }: { children: React.ReactNode }) {
         }`}
       >
         <div className="border-b border-white/5 px-4 py-5 sm:px-5">
-          <Logo variant="onDark" tagline="Workspace" href="/dashboard" className="min-w-0" />
+          <Link href="/dashboard" className="flex min-w-0 items-start gap-3 rounded-lg outline-none ring-offset-2 transition-opacity hover:opacity-95 focus-visible:ring-2 focus-visible:ring-emerald-400/40">
+            <Logo variant="onDark" tagline={workspaceDisplayName} href={null} className="min-w-0" />
+          </Link>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
-          <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Menu</p>
-          <div className="space-y-0.5">
+        <nav className="flex-1 overflow-y-auto px-3 py-5">
+          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Menu</p>
+          <div className="space-y-1">
             {CRM_NAV_MAIN.map((item) => (
               <NavLink key={item.href} href={item.href} label={item.label} />
             ))}
           </div>
-          <p className="mb-2 mt-8 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          <p className="mb-3 mt-10 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">
             Settings
           </p>
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             {CRM_NAV_SECONDARY.map((item) => (
               <NavLink key={item.href} href={item.href} label={item.label} />
             ))}
           </div>
         </nav>
 
-        <div className="border-t border-white/5 p-4">
-          <p className="px-1 text-[10px] text-slate-500">Lendex · B2B finance CRM</p>
+        <div className="border-t border-white/5 px-4 py-4">
+          <p className="px-1 text-[10px] leading-snug text-slate-500">{LENDEX_PRODUCT_OF_AERO_SYSTEMS}</p>
         </div>
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col lg:pl-[260px]">
-        <header className="adm-topbar sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-slate-200/80 bg-white/90 px-4 shadow-sm backdrop-blur-md sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
+        <header className="adm-topbar sticky top-0 z-30 flex min-h-[4rem] items-center justify-between gap-4 border-b border-slate-200/80 bg-white/90 px-5 py-3 shadow-sm backdrop-blur-md sm:px-7 lg:px-10">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <button
               type="button"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm lg:hidden"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm lg:hidden"
               onClick={() => setMobileNav((o) => !o)}
               aria-expanded={mobileNav}
               aria-label="Toggle navigation"
@@ -91,8 +100,8 @@ export function CrmAppShell({ children }: { children: React.ReactNode }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <div className="hidden min-w-0 sm:block">
-              <Logo size="sm" href="/dashboard" className="truncate" />
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-semibold text-slate-800">{workspaceDisplayName}</span>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -114,7 +123,7 @@ export function CrmAppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="adm-main flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
+        <main className="adm-main flex-1 px-5 py-8 sm:px-7 sm:py-10 lg:px-10 lg:py-12">{children}</main>
       </div>
     </div>
   );

@@ -4,23 +4,126 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db/prisma";
 import { resolveOrganizationId } from "@/lib/auth/organization";
-import {
-  LEAD_WORKFLOW_OPTIONS,
-  leadWorkflowStatusSchema,
-  normalizeLeadWorkflowStatus,
-} from "@/lib/leads/leadWorkflowStatus";
 import { PageHeader } from "@/components/crm-shell";
 import { createLeadActivity } from "@/lib/leads/activity";
+import {
+  collectLeadFieldErrors,
+  leadToCoreFormDefaults,
+  parseLeadCoreFormData,
+  toLeadPrismaData,
+} from "@/lib/leads/leadCoreFields";
+import {
+  coreFinanceFieldsChanged,
+  hasCoreFinanceSignalsForMatching,
+  leadToMatchSignals,
+  tryRunCrmLeadMatchingForLead,
+} from "@/lib/matching/runCrmLeadMatching";
+import { LeadEditForm, type LeadEditFormState } from "@/components/leads/LeadEditForm";
 
-const UpdateLeadInput = z.object({
-  firstName: z.string().min(1).max(120),
-  lastName: z.string().max(120).optional(),
-  email: z.string().email(),
-  phone: z.string().max(30).optional(),
-  companyName: z.string().max(180).optional(),
-  status: leadWorkflowStatusSchema,
-  notes: z.string().max(5000).optional(),
-});
+async function updateLead(
+  _prevState: LeadEditFormState,
+  formData: FormData,
+): Promise<LeadEditFormState> {
+  "use server";
+
+  const { userId, orgId, orgSlug } = await auth();
+  if (!userId) redirect("/sign-in");
+  if (!orgId) redirect("/organization/create");
+
+  const prisma = getPrisma();
+  const organizationId = await resolveOrganizationId(orgId, orgSlug ?? null);
+
+  const leadIdRaw = formData.get("leadId")?.toString()?.trim() ?? "";
+  const parsedId = z.string().uuid().safeParse(leadIdRaw);
+  if (!parsedId.success) {
+    return { ok: false, message: "Invalid lead." };
+  }
+  const targetId = parsedId.data;
+
+  const parsed = parseLeadCoreFormData(formData);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: "Please fix the highlighted fields.",
+      errors: collectLeadFieldErrors(parsed.error),
+    };
+  }
+
+  const existing = await prisma.lead.findFirst({
+    where: { id: targetId, organizationId },
+    select: {
+      status: true,
+      requestedAmount: true,
+      annualRevenue: true,
+      timeTradingMonths: true,
+      creditIssues: true,
+      businessType: true,
+    },
+  });
+  if (!existing) {
+    return { ok: false, message: "Lead not found or you no longer have access." };
+  }
+
+  await prisma.lead.updateMany({
+    where: {
+      id: targetId,
+      organizationId,
+    },
+    data: toLeadPrismaData(parsed.data),
+  });
+
+  const updatedLead = await prisma.lead.findFirst({
+    where: { id: targetId, organizationId },
+  });
+  if (!updatedLead) {
+    return { ok: false, message: "Lead not found or you no longer have access." };
+  }
+
+  if ((existing.status ?? "").toLowerCase() !== parsed.data.status.toLowerCase()) {
+    await createLeadActivity(prisma, {
+      organizationId,
+      leadId: targetId,
+      eventType: "status_changed",
+      description: `Status changed from ${existing.status ?? "new"} to ${parsed.data.status}.`,
+      metadata: { from: existing.status ?? null, to: parsed.data.status },
+    });
+  }
+
+  const financeBefore = {
+    requestedAmount: existing.requestedAmount,
+    annualRevenue: existing.annualRevenue,
+    timeTradingMonths: existing.timeTradingMonths,
+    creditIssues: existing.creditIssues,
+    businessType: existing.businessType,
+  };
+  const financeAfter = {
+    requestedAmount: updatedLead.requestedAmount,
+    annualRevenue: updatedLead.annualRevenue,
+    timeTradingMonths: updatedLead.timeTradingMonths,
+    creditIssues: updatedLead.creditIssues,
+    businessType: updatedLead.businessType,
+  };
+
+  if (
+    coreFinanceFieldsChanged(financeBefore, financeAfter) &&
+    hasCoreFinanceSignalsForMatching(leadToMatchSignals(updatedLead))
+  ) {
+    const tenant = await prisma.tenant.upsert({
+      where: { clerkOrgId: orgId },
+      create: { clerkOrgId: orgId, isBeta: false },
+      update: {},
+      select: { id: true },
+    });
+
+    await tryRunCrmLeadMatchingForLead(
+      prisma,
+      { tenantId: tenant.id, organizationId, lead: updatedLead },
+      "lead-edit-manual",
+    );
+  }
+
+  redirect(`/leads/${targetId}`);
+}
 
 export default async function EditLeadPage({
   params,
@@ -43,67 +146,11 @@ export default async function EditLeadPage({
     redirect("/leads");
   }
 
-  async function updateLead(formData: FormData) {
-    "use server";
-
-    const { userId, orgId, orgSlug } = await auth();
-    if (!userId) redirect("/sign-in");
-    if (!orgId) redirect("/organization/create");
-
-    const prisma = getPrisma();
-    const organizationId = await resolveOrganizationId(orgId, orgSlug ?? null);
-
-    const statusRaw = formData.get("status")?.toString()?.trim();
-    const parsed = UpdateLeadInput.parse({
-      firstName: formData.get("firstName")?.toString()?.trim(),
-      lastName: formData.get("lastName")?.toString()?.trim() || undefined,
-      email: formData.get("email")?.toString()?.trim(),
-      phone: formData.get("phone")?.toString()?.trim() || undefined,
-      companyName: formData.get("companyName")?.toString()?.trim() || undefined,
-      status: statusRaw ? leadWorkflowStatusSchema.parse(statusRaw) : "new",
-      notes: formData.get("notes")?.toString()?.trim() || undefined,
-    });
-
-    const existing = await prisma.lead.findFirst({
-      where: { id, organizationId },
-      select: { status: true },
-    });
-    if (!existing) redirect("/leads");
-
-    await prisma.lead.updateMany({
-      where: {
-        id,
-        organizationId,
-      },
-      data: {
-        firstName: parsed.firstName,
-        lastName: parsed.lastName,
-        email: parsed.email,
-        phone: parsed.phone,
-        companyName: parsed.companyName,
-        status: parsed.status,
-        notes: parsed.notes,
-      },
-    });
-
-    if ((existing.status ?? "").toLowerCase() !== parsed.status.toLowerCase()) {
-      await createLeadActivity(prisma, {
-        organizationId,
-        leadId: id,
-        eventType: "status_changed",
-        description: `Status changed from ${existing.status ?? "new"} to ${parsed.status}.`,
-        metadata: { from: existing.status ?? null, to: parsed.status },
-      });
-    }
-
-    redirect(`/leads/${id}`);
-  }
-
   return (
-    <div className="mx-auto w-full max-w-lg">
+    <div className="mx-auto w-full max-w-2xl">
       <PageHeader
         title="Edit lead"
-        description="Update contact details and workflow status."
+        description="Update contact details, funding criteria, and workflow status."
         eyebrow="Leads"
         actions={
           <Link href={`/leads/${id}`} className="btn-secondary text-sm">
@@ -112,102 +159,7 @@ export default async function EditLeadPage({
         }
       />
 
-        <form action={updateLead} className="space-y-5 rounded-2xl border border-slate-200/90 bg-white p-6 shadow-adm">
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-                First Name *
-              </label>
-              <input
-                name="firstName"
-                defaultValue={lead.firstName}
-                required
-                className="adm-input"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-                Last Name
-              </label>
-              <input
-                name="lastName"
-                defaultValue={lead.lastName ?? ""}
-                className="adm-input"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-                Email *
-              </label>
-              <input
-                name="email"
-                type="email"
-                defaultValue={lead.email ?? ""}
-                required
-                className="adm-input"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-                Phone
-              </label>
-              <input
-                name="phone"
-                defaultValue={lead.phone ?? ""}
-                className="adm-input"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-                Company Name
-              </label>
-              <input
-                name="companyName"
-                defaultValue={lead.companyName ?? ""}
-                className="adm-input"
-              />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-                Status
-              </label>
-              <select
-                name="status"
-                defaultValue={normalizeLeadWorkflowStatus(lead.status)}
-                className="adm-input"
-              >
-                {LEAD_WORKFLOW_OPTIONS.map(({ value, label }) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-600">
-              Notes
-            </label>
-            <textarea
-              name="notes"
-              rows={7}
-              defaultValue={lead.notes ?? ""}
-              className="adm-input"
-            />
-          </div>
-
-          <button type="submit" className="btn-primary w-full">
-            Save Changes
-          </button>
-        </form>
+      <LeadEditForm leadId={id} defaults={leadToCoreFormDefaults(lead)} action={updateLead} />
     </div>
   );
 }
-

@@ -11,10 +11,7 @@ import {
   getMemberReplyToEmail,
   resolveReplyToForSend,
 } from "@/lib/settings/memberReplyToEmail";
-import {
-  effectivePrimaryHex,
-  getBrandingForOrganization,
-} from "@/lib/settings/organizationBranding";
+import { getOrganizationNameById, workspaceDisplayLabel } from "@/lib/settings/organizationName";
 
 const SendEmailFormSchema = z.object({
   leadId: z.string().uuid(),
@@ -89,14 +86,8 @@ export async function sendLeadEmailAction(
   const memberReplyTo = await getMemberReplyToEmail(prisma, organizationId, userId);
   const replyToUsed = resolveReplyToForSend(memberReplyTo, process.env.EMAIL_REPLY_TO);
 
-  const orgBranding = await getBrandingForOrganization(prisma, organizationId);
-  const sendBranding = orgBranding
-    ? {
-        displayName: orgBranding.displayName,
-        logoUrl: orgBranding.logoUrl,
-        primaryColorHex: effectivePrimaryHex(orgBranding.primaryColorHex),
-      }
-    : undefined;
+  const orgName = await getOrganizationNameById(prisma, organizationId);
+  const organizationDisplayName = workspaceDisplayLabel(orgName);
 
   const sentAt = new Date();
   const sendResult = await sendLeadEmailViaResend({
@@ -104,7 +95,7 @@ export async function sendLeadEmailAction(
     subject,
     textBody: body,
     replyTo: replyToUsed,
-    branding: sendBranding,
+    organizationDisplayName,
   });
 
   if (!sendResult.ok) {

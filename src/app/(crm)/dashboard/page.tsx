@@ -15,6 +15,11 @@ import {
   formatLeadStatusLabel,
   leadWorkflowBadgeClass,
 } from "@/lib/leads/leadWorkflowStatus";
+import {
+  GettingStartedChecklist,
+  isOnboardingChecklistComplete,
+  type OnboardingChecklistState,
+} from "@/components/dashboard/GettingStartedChecklist";
 import { ContentCard, PageHeader, StatCard } from "@/components/crm-shell";
 
 const recentLeadDashboardSelect = {
@@ -55,10 +60,15 @@ export default async function DashboardPage() {
       clerkOrganizationId: orgId,
       name: orgSlug ?? null,
     },
-    update: {
-      name: orgSlug ?? undefined,
+    update: {},
+    select: {
+      id: true,
+      name: true,
+      onboardingFirstLeadAt: true,
+      onboardingFirstLenderSelectionAt: true,
+      onboardingFirstDealAt: true,
+      onboardingFirstSubmissionTrackedAt: true,
     },
-    select: { id: true, name: true },
   });
 
   await provisionOrganizationAfterUpsert(organizationRow.id);
@@ -150,39 +160,64 @@ export default async function DashboardPage() {
   ];
   const dealMax = Math.max(1, ...dealStageRows.map((r) => r.count));
 
+  const onboardingChecklist: OnboardingChecklistState = {
+    firstLeadAt: organizationRow.onboardingFirstLeadAt,
+    firstLenderSelectionAt: organizationRow.onboardingFirstLenderSelectionAt,
+    firstDealAt: organizationRow.onboardingFirstDealAt,
+    firstSubmissionTrackedAt: organizationRow.onboardingFirstSubmissionTrackedAt,
+  };
+  const showGettingStarted = !isOnboardingChecklistComplete(onboardingChecklist);
+
   return (
     <div className="adm-dashboard mx-auto max-w-7xl">
       <PageHeader
         title="Dashboard"
-        description={`${organizationRow.name ?? "Organization"} · metrics scoped to your active workspace.`}
+        description="Pipeline and workspace at a glance."
         eyebrow="Overview"
         actions={
-          <Link href="/deals/new" className="btn-secondary text-sm">
+          <Link href="/deals/new" className="btn-secondary">
             New deal
           </Link>
         }
       />
 
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {showGettingStarted ? (
+        <ContentCard
+          title="Getting started"
+          description="One-time steps for this workspace."
+          padding="md"
+          className="mb-10"
+        >
+          <GettingStartedChecklist state={onboardingChecklist} />
+        </ContentCard>
+      ) : null}
+
+      <div className="mb-10 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total leads" value={totalLeads} tone="slate" hint="In pipeline" />
         <StatCard label="Open deals" value={totalDeals} tone="violet" hint="All stages" />
         <StatCard label="Tasks due today" value={tasksDueToday} tone="amber" hint="Incomplete" />
         <StatCard label="Overdue tasks" value={tasksOverdue} tone="rose" hint="Needs attention" />
       </div>
 
-      <div className="mb-8">
+      <div className="mb-10">
         <ContentCard
           title="Recent leads"
-          description="The five most recently created leads in this workspace."
+          description="Latest five leads in this workspace."
           padding="none"
           headerExtra={
-            <Link href="/leads" className="btn-secondary text-xs sm:text-sm">
+            <Link href="/leads" className="btn-secondary">
               View all leads
             </Link>
           }
         >
           {recentLeadsRows.length === 0 ? (
-            <p className="px-5 py-8 text-sm text-slate-500 sm:px-6">No leads yet.</p>
+            <div className="px-6 py-12 text-center sm:px-8">
+              <p className="text-base font-semibold text-slate-900">No leads yet</p>
+              <p className="mt-2 text-sm text-slate-600">Add a lead to start your pipeline.</p>
+              <Link href="/leads/new" className="adm-btn-primary mt-6 inline-flex">
+                Add your first lead
+              </Link>
+            </div>
           ) : (
             <div className="overflow-x-auto border-t border-slate-100">
               <table className="adm-table">
@@ -225,8 +260,8 @@ export default async function DashboardPage() {
         </ContentCard>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ContentCard title="Pipeline overview" description="Lead and deal volume at a glance." padding="md">
+      <div className="grid gap-8 lg:grid-cols-2">
+        <ContentCard title="Pipeline overview" description="Lead and deal volume." padding="md">
           <div className="grid gap-6 sm:grid-cols-2">
             <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
               <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Leads</p>
@@ -245,7 +280,7 @@ export default async function DashboardPage() {
           </div>
         </ContentCard>
 
-        <ContentCard title="Deals by stage" description="Distribution across your deal pipeline." padding="md">
+        <ContentCard title="Deals by stage" description="Count by pipeline stage." padding="md">
           <ul className="space-y-4">
             {dealStageRows.map(({ key, count, label }) => (
               <li key={key}>
