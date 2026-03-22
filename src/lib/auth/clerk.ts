@@ -11,17 +11,30 @@ export type TenantContext = {
   isBeta: boolean;
 };
 
-function normalizeOrgRole(orgRole: string | null | undefined): {
-  tenantRole: "admin" | "member";
-  isAdmin: boolean;
-} {
-  const r = (orgRole ?? "").toLowerCase();
-  const isAdmin = r === "admin" || r === "org:admin";
-  return { tenantRole: isAdmin ? "admin" : "member", isAdmin };
+/** Clerk session helper — prefer `has({ role: 'org:admin' })`, then common role keys (custom roles often end with `:admin`). */
+export function isOrganizationAdminFromSession(
+  a: Awaited<ReturnType<typeof auth>>,
+): boolean {
+  if (!a.userId || !a.orgId) return false;
+  if (typeof a.has === "function") {
+    try {
+      if (a.has({ role: "org:admin" })) return true;
+    } catch {
+      /* incomplete session claims */
+    }
+  }
+  const r = (a.orgRole ?? "").toLowerCase();
+  return (
+    r === "admin" ||
+    r === "org:admin" ||
+    r === "org:owner" ||
+    (r.length > 0 && r.endsWith(":admin"))
+  );
 }
 
 export async function getTenantContext(): Promise<TenantContext> {
-  const { userId, orgId, orgRole } = await auth();
+  const a = await auth();
+  const { userId, orgId } = a;
 
   if (!userId) {
     throw new ApiError({
@@ -39,7 +52,8 @@ export async function getTenantContext(): Promise<TenantContext> {
     });
   }
 
-  const { tenantRole, isAdmin } = normalizeOrgRole(orgRole);
+  const isAdmin = isOrganizationAdminFromSession(a);
+  const tenantRole: "admin" | "member" = isAdmin ? "admin" : "member";
 
   // Map the Clerk Organization to our canonical workspace (Tenant) row.
   const prisma = getPrisma();

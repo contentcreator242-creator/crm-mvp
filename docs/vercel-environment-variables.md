@@ -62,12 +62,21 @@ For each row: **Name** = left side, **Value** = right side (no quotes needed in 
 | Key | What to put | Where you get it |
 |-----|-------------|------------------|
 | `STRIPE_SECRET_KEY` | `sk_live_...` / `sk_test_...` | Stripe → **Developers → API keys** |
-| `STRIPE_PRICE_ID` | `price_...` | Stripe → **Product catalog** → your **Lendex** product → monthly **Price** ID |
+| `STRIPE_PRICE_ID` | `price_...` | Stripe → **Product catalog** → base **Lendex** plan (**£39**/month recurring) |
+| `STRIPE_SEAT_PRICE_ID` | `price_...` | Separate recurring price (**£10**/month) used as subscription **quantity** = users beyond 3 |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_...` | Stripe → **Webhooks** → endpoint `https://<your-domain>/api/stripe/webhook` → **Signing secret** |
 
 **Webhook events to send:** `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`.
 
 Also set **`NEXT_PUBLIC_APP_URL`** so Checkout **success** / **cancel** URLs point at your deployment.
+
+### Clerk webhooks (seat sync)
+
+| Key | What to put |
+|-----|-------------|
+| `CLERK_WEBHOOK_SIGNING_SECRET` | Signing secret from Clerk → **Webhooks** → endpoint `https://<your-domain>/api/webhooks/clerk` |
+
+Subscribe to **`organizationInvitation.accepted`**, **`organizationMembership.created`**, **`organizationMembership.deleted`** so Stripe seat quantity updates when invites are accepted or members are removed.
 
 ---
 

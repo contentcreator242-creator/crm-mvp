@@ -14,8 +14,10 @@ export const CRM_NAV_MAIN: CrmNavItem[] = [
 ];
 
 export const CRM_NAV_SECONDARY: CrmNavItem[] = [
+  { href: "/settings/team", label: "Team" },
+  { href: "/settings/billing", label: "Billing" },
+  { href: "/settings/workspace", label: "Workspace" },
   { href: "/settings/integrations", label: "Integrations" },
   { href: "/settings/email", label: "Email" },
   { href: "/settings/email-templates", label: "Email templates" },
-  { href: "/settings/workspace", label: "Workspace" },
 ];

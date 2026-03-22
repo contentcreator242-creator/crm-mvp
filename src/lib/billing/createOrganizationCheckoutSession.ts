@@ -1,5 +1,7 @@
 import type Stripe from "stripe";
+import { getActiveMembershipTotalCount } from "@/lib/clerk/organizationMembers";
 import { getAppOrigin } from "@/lib/billing/appUrl";
+import { extraSeatsFromActiveCount } from "@/lib/billing/seatConstants";
 import { readServerEnvTrimmed } from "@/lib/billing/readServerEnv";
 import { getStripe } from "@/lib/billing/stripe";
 import { getPrisma } from "@/lib/db/prisma";
@@ -12,19 +14,13 @@ export type CheckoutSessionResult =
  * Creates a Stripe Checkout Session in subscription mode for the given CRM organization.
  */
 export async function createOrganizationCheckoutSession(organizationId: string): Promise<CheckoutSessionResult> {
-  // Temporary debug — remove after Stripe env is confirmed on Vercel.
-  const rawPrice = Reflect.get(process.env, "STRIPE_PRICE_ID");
-  const rawAppUrl = Reflect.get(process.env, "NEXT_PUBLIC_APP_URL");
-  console.info("[billing-env-debug] createOrganizationCheckoutSession", {
-    STRIPE_PRICE_ID_defined: typeof rawPrice === "string" && rawPrice.trim().length > 0,
-    STRIPE_PRICE_ID_length: typeof rawPrice === "string" ? rawPrice.trim().length : 0,
-    NEXT_PUBLIC_APP_URL_defined: typeof rawAppUrl === "string" && rawAppUrl.trim().length > 0,
-    NEXT_PUBLIC_APP_URL_length: typeof rawAppUrl === "string" ? rawAppUrl.trim().length : 0,
-  });
-
-  const priceId = readServerEnvTrimmed("STRIPE_PRICE_ID");
-  if (!priceId) {
+  const basePriceId = readServerEnvTrimmed("STRIPE_PRICE_ID");
+  const seatPriceId = readServerEnvTrimmed("STRIPE_SEAT_PRICE_ID");
+  if (!basePriceId) {
     return { ok: false, error: "Billing is not configured (missing STRIPE_PRICE_ID).", status: 503 };
+  }
+  if (!seatPriceId) {
+    return { ok: false, error: "Billing is not configured (missing STRIPE_SEAT_PRICE_ID).", status: 503 };
   }
 
   if (!readServerEnvTrimmed("STRIPE_SECRET_KEY")) {
@@ -37,6 +33,7 @@ export async function createOrganizationCheckoutSession(organizationId: string):
     select: {
       id: true,
       stripeCustomerId: true,
+      clerkOrganizationId: true,
     },
   });
 
@@ -46,9 +43,19 @@ export async function createOrganizationCheckoutSession(organizationId: string):
 
   const base = getAppOrigin();
 
+  const activeMembers = await getActiveMembershipTotalCount(org.clerkOrganizationId);
+  const extraSeats = extraSeatsFromActiveCount(activeMembers);
+
+  const lineItems: Stripe.Checkout.SessionCreateParams["line_items"] = [
+    { price: basePriceId, quantity: 1 },
+  ];
+  if (extraSeats > 0) {
+    lineItems.push({ price: seatPriceId, quantity: extraSeats });
+  }
+
   const params: Stripe.Checkout.SessionCreateParams = {
     mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: lineItems,
     success_url: `${base}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${base}/#pricing`,
     client_reference_id: organizationId,

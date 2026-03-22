@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import type Stripe from "stripe";
 import { getStripe } from "@/lib/billing/stripe";
+import { syncStripeSubscriptionSeatsForOrganization } from "@/lib/billing/syncStripeSubscriptionSeats";
 import { getPrisma } from "@/lib/db/prisma";
 import { withTenantDb } from "@/lib/db/tenantDb";
 
@@ -82,6 +83,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
   const sub = await stripe.subscriptions.retrieve(subId);
   const targetOrg = sub.metadata?.organizationId ?? organizationId;
   await syncOrganizationSubscription(sub, targetOrg);
+  await syncStripeSubscriptionSeatsForOrganization(targetOrg);
 }
 
 async function handleLegacyTenantSubscriptionEvent(sub: Stripe.Subscription) {
@@ -194,6 +196,7 @@ export async function POST(req: Request) {
       const orgId = await resolveOrganizationIdForSubscription(sub);
       if (orgId) {
         await syncOrganizationSubscription(sub, orgId);
+        await syncStripeSubscriptionSeatsForOrganization(orgId);
       } else if (parseTenantIdFromMetadata(sub.metadata)) {
         await handleLegacyTenantSubscriptionEvent(sub);
       } else {
