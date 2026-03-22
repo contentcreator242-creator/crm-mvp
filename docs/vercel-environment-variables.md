@@ -93,6 +93,14 @@ Subscribe to **`organizationInvitation.accepted`**, **`organizationMembership.cr
 
 After deploy, in **Clerk Dashboard → your app → Domains**, add your Vercel URL (`https://....vercel.app`) so sign-in works in production.
 
+### Organization invitations → Lendex app (not Clerk Account Portal)
+
+Invites created by the CRM API set Clerk’s **`redirectUrl`** to **`{your-app-origin}/accept-invitation`**. After the invitee clicks the email link, Clerk sends them to that page with `__clerk_ticket` and `__clerk_status` query params; the app completes sign-in/sign-up and sends them to **`/dashboard`** (then onboarding if the org isn’t finished).
+
+If invite links still open **Clerk’s hosted portal** or redirect fails in production, check **Clerk Dashboard → Configure → Paths** (and any **Allowed redirect URLs** / **Component paths** settings for your instance) and allow your app URL, including **`https://<your-domain>/accept-invitation`**.
+
+Ensure **`NEXT_PUBLIC_APP_URL`** matches your production domain when the invite API cannot infer the origin from request headers (e.g. some server-side calls).
+
 ---
 
 ## Quick path if you’re lost

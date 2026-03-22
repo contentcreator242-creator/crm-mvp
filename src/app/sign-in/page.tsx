@@ -1,5 +1,5 @@
-import { SignIn } from "@clerk/nextjs";
 import Link from "next/link";
+import { SignInPanel } from "@/components/clerk/SignInPanel";
 import { LENDEX_PRODUCT_OF_AERO_SYSTEMS } from "@/components/brand";
 import { sanitizeInternalPath } from "@/lib/billing/sanitizeRedirect";
 
@@ -18,11 +18,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
           <h1 className="mb-2 text-xl font-semibold text-slate-900">Sign in</h1>
           <p className="mb-6 text-sm text-slate-600">Access your workspace to continue.</p>
 
-          <SignIn
-            path="/sign-in"
-            routing="path"
-            {...(afterSignIn ? { forceRedirectUrl: afterSignIn } : {})}
-          />
+          <SignInPanel forceRedirectUrl={afterSignIn} />
 
           <p className="mt-4 text-sm text-slate-600">
             New here?{" "}
@@ -36,4 +32,3 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
     </main>
   );
 }
-

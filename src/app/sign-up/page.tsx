@@ -1,5 +1,5 @@
-import { SignUp } from "@clerk/nextjs";
 import Link from "next/link";
+import { SignUpPanel } from "@/components/clerk/SignUpPanel";
 import { LENDEX_PRODUCT_OF_AERO_SYSTEMS } from "@/components/brand";
 import { sanitizeInternalPath } from "@/lib/billing/sanitizeRedirect";
 
@@ -18,11 +18,7 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
           <h1 className="mb-2 text-xl font-semibold text-slate-900">Create account</h1>
           <p className="mb-6 text-sm text-slate-600">Start your CRM workspace in minutes.</p>
 
-          <SignUp
-            path="/sign-up"
-            routing="path"
-            {...(afterSignUp ? { forceRedirectUrl: afterSignUp } : {})}
-          />
+          <SignUpPanel forceRedirectUrl={afterSignUp} />
 
           <p className="mt-4 text-sm text-slate-600">
             Already have an account?{" "}
@@ -36,4 +32,3 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
     </main>
   );
 }
-

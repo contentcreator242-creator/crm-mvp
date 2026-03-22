@@ -1,13 +1,15 @@
+import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { withErrorHandling } from "@/lib/api/withErrorHandling";
-
-export const dynamic = "force-dynamic";
 import { ApiError } from "@/lib/api/errors";
 import { getTenantContext } from "@/lib/auth/clerk";
 import { INCLUDED_SEATS } from "@/lib/billing/seatConstants";
 import { getClerkBackendClient } from "@/lib/clerk/clerkBackendClient";
 import { getActiveMembershipTotalCount } from "@/lib/clerk/organizationMembers";
+import { appOriginFromHeaders } from "@/lib/url/appOrigin";
+
+export const dynamic = "force-dynamic";
 
 const InviteInput = z.object({
   emailAddress: z.string().email(),
@@ -36,11 +38,16 @@ export async function POST(req: Request) {
     const clerkClient = getClerkBackendClient();
     const role = input.role ?? "org:member";
 
+    const h = await headers();
+    const origin = appOriginFromHeaders(h);
+    const redirectUrl = origin ? `${origin.replace(/\/$/, "")}/accept-invitation` : undefined;
+
     await clerkClient.organizations.createOrganizationInvitation({
       organizationId: ctx.clerkOrgId,
       inviterUserId: ctx.clerkUserId,
       emailAddress: input.emailAddress,
       role,
+      ...(redirectUrl ? { redirectUrl } : {}),
     });
 
     return NextResponse.json({ ok: true, seatNotice });
