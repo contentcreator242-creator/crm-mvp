@@ -44,11 +44,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "unknown error";
+    const stack = e instanceof Error ? e.stack : undefined;
     const isVerifyError =
       message.includes("Missing required webhook headers") ||
       message.includes("Unable to verify incoming webhook") ||
       message.includes("Missing webhook signing secret");
-    console.error("[clerk-webhook] failed", { message });
+    console.error("[clerk-webhook] failed", { message, stack });
     return NextResponse.json({ ok: false }, { status: isVerifyError ? 400 : 500 });
   }
 }

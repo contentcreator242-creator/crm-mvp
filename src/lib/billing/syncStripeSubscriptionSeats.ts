@@ -27,6 +27,7 @@ export async function syncStripeSubscriptionSeatsForOrganization(organizationId:
   const org = await prisma.organization.findUnique({
     where: { id: organizationId },
     select: {
+      stripeCustomerId: true,
       stripeSubscriptionId: true,
       clerkOrganizationId: true,
     },
@@ -43,8 +44,25 @@ export async function syncStripeSubscriptionSeatsForOrganization(organizationId:
   const extraSeats = extraSeatsFromActiveCount(activeCount);
 
   const stripe = getStripe();
+  const seatPrice = await stripe.prices.retrieve(seatPriceId);
+  if (!seatPrice.active || seatPrice.type !== "recurring" || !seatPrice.recurring) {
+    throw new Error(
+      `[stripe-seats] invalid STRIPE_SEAT_PRICE_ID=${seatPriceId} active=${seatPrice.active} type=${seatPrice.type}`,
+    );
+  }
   const sub = await stripe.subscriptions.retrieve(org.stripeSubscriptionId, {
     expand: ["items.data.price"],
+  });
+  console.info("[stripe-seats] sync-start", {
+    organizationId,
+    stripeCustomerId: org.stripeCustomerId ?? null,
+    stripeSubscriptionId: org.stripeSubscriptionId,
+    activeCount,
+    extraSeats,
+    basePriceId,
+    seatPriceId,
+    seatPriceCurrency: seatPrice.currency,
+    seatPriceInterval: seatPrice.recurring.interval,
   });
 
   const items = sub.items.data;
@@ -65,6 +83,10 @@ export async function syncStripeSubscriptionSeatsForOrganization(organizationId:
 
   if (extraSeats === 0) {
     if (seatItem) {
+      console.info("[stripe-seats] deleting-seat-item", {
+        organizationId,
+        seatItemId: seatItem.id,
+      });
       await stripe.subscriptionItems.del(seatItem.id, { proration_behavior: "create_prorations" });
     }
     console.info("[perf] stripe-seat-sync", {
@@ -78,6 +100,12 @@ export async function syncStripeSubscriptionSeatsForOrganization(organizationId:
 
   if (seatItem) {
     if (seatItem.quantity !== extraSeats) {
+      console.info("[stripe-seats] updating-seat-item", {
+        organizationId,
+        seatItemId: seatItem.id,
+        fromQuantity: seatItem.quantity ?? 0,
+        toQuantity: extraSeats,
+      });
       await stripe.subscriptionItems.update(seatItem.id, {
         quantity: extraSeats,
         proration_behavior: "create_prorations",
@@ -92,6 +120,11 @@ export async function syncStripeSubscriptionSeatsForOrganization(organizationId:
     return;
   }
 
+  console.info("[stripe-seats] creating-seat-item", {
+    organizationId,
+    stripeSubscriptionId: org.stripeSubscriptionId,
+    quantity: extraSeats,
+  });
   await stripe.subscriptionItems.create({
     subscription: org.stripeSubscriptionId,
     price: seatPriceId,
