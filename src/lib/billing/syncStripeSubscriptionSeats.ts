@@ -16,11 +16,8 @@ export async function syncStripeSubscriptionSeatsForOrganization(organizationId:
   const basePriceId = readServerEnvTrimmed("STRIPE_PRICE_ID");
   const seatPriceId = readServerEnvTrimmed("STRIPE_SEAT_PRICE_ID");
   if (!basePriceId || !seatPriceId) {
-    console.warn(
-      "[stripe-seats] skip sync: STRIPE_PRICE_ID or STRIPE_SEAT_PRICE_ID missing",
-      organizationId,
-    );
-    return;
+    console.error("[stripe-seats] STRIPE_PRICE_ID or STRIPE_SEAT_PRICE_ID missing", { organizationId });
+    throw new Error("[stripe-seats] STRIPE_PRICE_ID or STRIPE_SEAT_PRICE_ID not configured");
   }
 
   const prisma = getPrisma();
@@ -33,11 +30,22 @@ export async function syncStripeSubscriptionSeatsForOrganization(organizationId:
     },
   });
 
-  if (!org?.stripeSubscriptionId || !org.clerkOrganizationId) {
-    if (org && !org.stripeSubscriptionId) {
-      console.warn("[stripe-seats] skip sync: organization has no stripeSubscriptionId", organizationId);
-    }
-    return;
+  if (!org) {
+    console.error("[stripe-seats] organization row not found", { organizationId });
+    throw new Error(`[stripe-seats] organization not found for organizationId=${organizationId}`);
+  }
+  if (!org.clerkOrganizationId) {
+    console.error("[stripe-seats] organization missing clerkOrganizationId", { organizationId });
+    throw new Error(`[stripe-seats] organization missing clerkOrganizationId organizationId=${organizationId}`);
+  }
+  if (!org.stripeSubscriptionId) {
+    console.error("[stripe-seats] organization has no stripeSubscriptionId — run checkout or fix Stripe webhook linkage", {
+      organizationId,
+      stripeCustomerId: org.stripeCustomerId ?? null,
+    });
+    throw new Error(
+      `[stripe-seats] organization has no stripeSubscriptionId (organizationId=${organizationId}); subscription id must be persisted from checkout.session.completed`,
+    );
   }
 
   const activeCount = await getActiveMembershipTotalCount(org.clerkOrganizationId);

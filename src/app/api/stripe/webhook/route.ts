@@ -69,8 +69,24 @@ async function syncOrganizationSubscription(sub: Stripe.Subscription, organizati
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
   if (session.mode !== "subscription") return;
 
-  const organizationId = session.metadata?.organizationId;
-  if (!organizationId) return;
+  const fromMeta =
+    typeof session.metadata?.organizationId === "string" && session.metadata.organizationId.trim().length > 0
+      ? session.metadata.organizationId.trim()
+      : null;
+  const fromClientRef =
+    typeof session.client_reference_id === "string" && session.client_reference_id.trim().length > 0
+      ? session.client_reference_id.trim()
+      : null;
+  const organizationId = fromMeta ?? fromClientRef;
+
+  if (!organizationId) {
+    console.error("[stripe-webhook] checkout.session.completed missing organization linkage", {
+      sessionId: session.id,
+      hasMetadataOrganizationId: Boolean(fromMeta),
+      hasClientReferenceId: Boolean(fromClientRef),
+    });
+    throw new Error("checkout.session.completed missing organization id");
+  }
 
   const subRef = session.subscription;
   const subId = typeof subRef === "string" ? subRef : subRef?.id;
@@ -81,7 +97,16 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
 
   const stripe = getStripe();
   const sub = await stripe.subscriptions.retrieve(subId);
-  const targetOrg = sub.metadata?.organizationId ?? organizationId;
+  const fromSubMeta =
+    typeof sub.metadata?.organizationId === "string" && sub.metadata.organizationId.trim().length > 0
+      ? sub.metadata.organizationId.trim()
+      : null;
+  const targetOrg = fromSubMeta ?? organizationId;
+  console.info("[stripe-webhook] checkout.session.completed linking organization", {
+    sessionId: session.id,
+    subscriptionId: sub.id,
+    organizationId: targetOrg,
+  });
   await syncOrganizationSubscription(sub, targetOrg);
   await syncStripeSubscriptionSeatsForOrganization(targetOrg);
 }
