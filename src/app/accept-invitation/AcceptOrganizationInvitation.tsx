@@ -8,9 +8,11 @@ import * as React from "react";
 import { LENDEX_PRODUCT_OF_AERO_SYSTEMS } from "@/components/brand";
 
 /**
- * Single-flight for ticket sign-in: Strict Mode runs the effect twice; skip the second while the first request runs.
+ * Invitation single-flight/idempotency guards to prevent duplicate Clerk ticket calls.
  */
-let organizationInviteSignInInFlightToken: string | null = null;
+const inviteFlowInFlightKeys = new Set<string>();
+const inviteFlowFinishedKeys = new Set<string>();
+const inviteCompleteRedirectedTokens = new Set<string>();
 
 function clerkErrorMessage(e: unknown): string {
   if (e && typeof e === "object" && "errors" in e) {
@@ -44,14 +46,17 @@ export function AcceptOrganizationInvitation() {
 
   React.useEffect(() => {
     if (accountStatus !== "complete" || !token) return;
+    if (inviteCompleteRedirectedTokens.has(token)) return;
+    inviteCompleteRedirectedTokens.add(token);
     router.replace("/dashboard");
     router.refresh();
   }, [accountStatus, token, router]);
 
   React.useEffect(() => {
     if (accountStatus !== "sign_in" || !token || !signInLoaded || !signIn || !setActiveSignIn) return;
-    if (organizationInviteSignInInFlightToken === token) return;
-    organizationInviteSignInInFlightToken = token;
+    const key = `${accountStatus}:${token}`;
+    if (inviteFlowInFlightKeys.has(key) || inviteFlowFinishedKeys.has(key)) return;
+    inviteFlowInFlightKeys.add(key);
 
     setError(null);
 
@@ -63,25 +68,30 @@ export function AcceptOrganizationInvitation() {
         });
         if (attempt.status === "complete" && attempt.createdSessionId) {
           await setActiveSignIn({ session: attempt.createdSessionId });
+          inviteFlowFinishedKeys.add(key);
           router.replace("/dashboard");
           router.refresh();
           return;
         }
+        inviteFlowFinishedKeys.add(key);
         setError("Could not complete sign-in from this invitation. Try signing in with your email.");
         console.error("Clerk sign-in attempt (ticket):", attempt);
       } catch (e) {
+        inviteFlowFinishedKeys.add(key);
         setError(clerkErrorMessage(e));
       } finally {
-        if (organizationInviteSignInInFlightToken === token) {
-          organizationInviteSignInInFlightToken = null;
-        }
+        inviteFlowInFlightKeys.delete(key);
       }
     })();
   }, [accountStatus, token, signInLoaded, signIn, setActiveSignIn, router]);
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     if (!signUpLoaded || !signUp || !setActiveSignUp || !token) return;
+    const key = `sign_up:${token}`;
+    if (inviteFlowInFlightKeys.has(key) || inviteFlowFinishedKeys.has(key)) return;
+    inviteFlowInFlightKeys.add(key);
     setSubmitting(true);
     setError(null);
     try {
@@ -94,15 +104,19 @@ export function AcceptOrganizationInvitation() {
       });
       if (attempt.status === "complete" && attempt.createdSessionId) {
         await setActiveSignUp({ session: attempt.createdSessionId });
+        inviteFlowFinishedKeys.add(key);
         router.replace("/dashboard");
         router.refresh();
       } else {
+        inviteFlowFinishedKeys.add(key);
         setError("Additional verification may be required. Try again or contact support.");
         console.error("Clerk sign-up attempt (ticket):", attempt);
       }
     } catch (e) {
+      inviteFlowFinishedKeys.add(key);
       setError(clerkErrorMessage(e));
     } finally {
+      inviteFlowInFlightKeys.delete(key);
       setSubmitting(false);
     }
   };
