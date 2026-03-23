@@ -12,6 +12,7 @@ import { extraSeatsFromActiveCount } from "@/lib/billing/seatConstants";
  * `STRIPE_SEAT_PRICE_ID`. The base plan item (`STRIPE_PRICE_ID`) is left unchanged.
  */
 export async function syncStripeSubscriptionSeatsForOrganization(organizationId: string): Promise<void> {
+  const t0 = performance.now();
   const basePriceId = readServerEnvTrimmed("STRIPE_PRICE_ID");
   const seatPriceId = readServerEnvTrimmed("STRIPE_SEAT_PRICE_ID");
   if (!basePriceId || !seatPriceId) {
@@ -31,7 +32,12 @@ export async function syncStripeSubscriptionSeatsForOrganization(organizationId:
     },
   });
 
-  if (!org?.stripeSubscriptionId || !org.clerkOrganizationId) return;
+  if (!org?.stripeSubscriptionId || !org.clerkOrganizationId) {
+    if (org && !org.stripeSubscriptionId) {
+      console.warn("[stripe-seats] skip sync: organization has no stripeSubscriptionId", organizationId);
+    }
+    return;
+  }
 
   const activeCount = await getActiveMembershipTotalCount(org.clerkOrganizationId);
   const extraSeats = extraSeatsFromActiveCount(activeCount);
@@ -61,6 +67,12 @@ export async function syncStripeSubscriptionSeatsForOrganization(organizationId:
     if (seatItem) {
       await stripe.subscriptionItems.del(seatItem.id, { proration_behavior: "create_prorations" });
     }
+    console.info("[perf] stripe-seat-sync", {
+      organizationId,
+      activeCount,
+      extraSeats,
+      elapsedMs: Math.round(performance.now() - t0),
+    });
     return;
   }
 
@@ -71,6 +83,12 @@ export async function syncStripeSubscriptionSeatsForOrganization(organizationId:
         proration_behavior: "create_prorations",
       });
     }
+    console.info("[perf] stripe-seat-sync", {
+      organizationId,
+      activeCount,
+      extraSeats,
+      elapsedMs: Math.round(performance.now() - t0),
+    });
     return;
   }
 
@@ -80,6 +98,12 @@ export async function syncStripeSubscriptionSeatsForOrganization(organizationId:
     quantity: extraSeats,
     proration_behavior: "create_prorations",
   });
+  console.info("[perf] stripe-seat-sync", {
+    organizationId,
+    activeCount,
+    extraSeats,
+    elapsedMs: Math.round(performance.now() - t0),
+  });
 }
 
 export async function syncStripeSeatsForClerkOrganizationId(clerkOrganizationId: string): Promise<void> {
@@ -88,6 +112,8 @@ export async function syncStripeSeatsForClerkOrganizationId(clerkOrganizationId:
     where: { clerkOrganizationId },
     select: { id: true },
   });
-  if (!row) return;
+  if (!row) {
+    throw new Error(`[stripe-seats] organization not found for clerkOrganizationId=${clerkOrganizationId}`);
+  }
   await syncStripeSubscriptionSeatsForOrganization(row.id);
 }

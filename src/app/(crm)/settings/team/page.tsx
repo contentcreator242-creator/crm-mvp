@@ -6,13 +6,13 @@ import {
   listOrganizationMemberships,
   listPendingInvitations,
 } from "@/lib/clerk/organizationMembers";
-import { syncStripeSubscriptionSeatsForOrganization } from "@/lib/billing/syncStripeSubscriptionSeats";
 import { ContentCard, PageHeader } from "@/components/crm-shell";
 import { InviteMemberForm } from "./InviteMemberForm";
 import { RemoveMemberButton } from "./RemoveMemberButton";
 import { RevokeInvitationButton } from "./RevokeInvitationButton";
 
 export default async function TeamSettingsPage() {
+  const t0 = performance.now();
   const authState = await auth();
   const { userId, orgId, orgSlug, orgRole } = authState;
   if (!userId) redirect("/sign-in");
@@ -21,12 +21,16 @@ export default async function TeamSettingsPage() {
   const organizationId = await resolveOrganizationId(orgId, orgSlug ?? null);
   const isAdmin = isOrganizationAdminFromSession(authState);
 
-  await syncStripeSubscriptionSeatsForOrganization(organizationId);
-
   const [memberships, invitations] = await Promise.all([
     listOrganizationMemberships(orgId),
     listPendingInvitations(orgId),
   ]);
+  console.info("[perf] settings-team", {
+    organizationId,
+    memberships: memberships.length,
+    invitations: invitations.length,
+    elapsedMs: Math.round(performance.now() - t0),
+  });
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">

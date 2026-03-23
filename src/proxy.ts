@@ -13,6 +13,8 @@ const isPublicRoute = createRouteMatcher([
   "/organization/create(.*)",
   "/api/health(.*)",
   "/api/stripe/webhook(.*)",
+  /** Clerk → Stripe seat sync (Svix has no user session; must not hit auth.protect). */
+  "/api/webhooks/clerk(.*)",
   "/api/lead-capture(.*)",
   "/embed(.*)",
 ]);

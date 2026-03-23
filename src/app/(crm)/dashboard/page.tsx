@@ -42,6 +42,7 @@ function formatLeadCreatedDate(date: Date) {
 }
 
 export default async function DashboardPage() {
+  const t0 = performance.now();
   const { userId, orgId, orgSlug } = await auth();
 
   if (!userId) {
@@ -83,72 +84,46 @@ export default async function DashboardPage() {
 
   const orgIdWhere = { organizationId: organizationRow.id };
 
-  const [
-    [
-      totalLeads,
-      totalDeals,
-      dealsNew,
-      dealsQualified,
-      dealsWon,
-      dealsLost,
-      tasksDueToday,
-      tasksOverdue,
-      lenders,
-      lendersSchemaFull,
-    ],
-    recentLeads,
-  ] = await Promise.all([
-    Promise.all([
-      prisma.lead.count({ where: orgIdWhere }),
-      prisma.deal.count({ where: orgIdWhere }),
-      prisma.deal.count({
-        where: {
-          ...orgIdWhere,
-          status: "new",
-        },
+  const [[totalLeads, totalDeals, tasksDueToday, tasksOverdue, lenders, lendersSchemaFull, dealStageCounts], recentLeads] =
+    await Promise.all([
+      Promise.all([
+        prisma.lead.count({ where: orgIdWhere }),
+        prisma.deal.count({ where: orgIdWhere }),
+        prisma.task.count({
+          where: {
+            ...orgIdWhere,
+            status: { not: "done" },
+            dueAt: { gte: startOfTodayUtc, lte: endOfTodayUtc },
+          },
+        }),
+        prisma.task.count({
+          where: {
+            ...orgIdWhere,
+            status: { not: "done" },
+            dueAt: { lt: startOfTodayUtc },
+          },
+        }),
+        findLendersForOrganization(prisma, organizationRow.id),
+        lenderSchemaIsFull(prisma),
+        prisma.deal.groupBy({
+          by: ["status"],
+          where: orgIdWhere,
+          _count: { _all: true },
+        }),
+      ]),
+      prisma.lead.findMany({
+        where: orgIdWhere,
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: recentLeadDashboardSelect,
       }),
-      prisma.deal.count({
-        where: {
-          ...orgIdWhere,
-          status: "qualified",
-        },
-      }),
-      prisma.deal.count({
-        where: {
-          ...orgIdWhere,
-          status: "won",
-        },
-      }),
-      prisma.deal.count({
-        where: {
-          ...orgIdWhere,
-          status: "lost",
-        },
-      }),
-      prisma.task.count({
-        where: {
-          ...orgIdWhere,
-          status: { not: "done" },
-          dueAt: { gte: startOfTodayUtc, lte: endOfTodayUtc },
-        },
-      }),
-      prisma.task.count({
-        where: {
-          ...orgIdWhere,
-          status: { not: "done" },
-          dueAt: { lt: startOfTodayUtc },
-        },
-      }),
-      findLendersForOrganization(prisma, organizationRow.id),
-      lenderSchemaIsFull(prisma),
-    ]),
-    prisma.lead.findMany({
-      where: orgIdWhere,
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: recentLeadDashboardSelect,
-    }),
-  ]);
+    ]);
+
+  const dealStageMap = new Map(dealStageCounts.map((row) => [row.status, row._count._all]));
+  const dealsNew = dealStageMap.get("new") ?? 0;
+  const dealsQualified = dealStageMap.get("qualified") ?? 0;
+  const dealsWon = dealStageMap.get("won") ?? 0;
+  const dealsLost = dealStageMap.get("lost") ?? 0;
 
   const recentLeadsRows: DashboardRecentLead[] = recentLeads;
 
@@ -167,6 +142,12 @@ export default async function DashboardPage() {
     firstSubmissionTrackedAt: organizationRow.onboardingFirstSubmissionTrackedAt,
   };
   const showGettingStarted = !isOnboardingChecklistComplete(onboardingChecklist);
+  console.info("[perf] dashboard", {
+    organizationId: organizationRow.id,
+    totalLeads,
+    totalDeals,
+    elapsedMs: Math.round(performance.now() - t0),
+  });
 
   return (
     <div className="adm-dashboard mx-auto max-w-7xl">

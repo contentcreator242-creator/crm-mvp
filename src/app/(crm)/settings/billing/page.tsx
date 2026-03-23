@@ -11,16 +11,15 @@ import {
   estimatedMonthlyTotalGbp,
   extraSeatsFromActiveCount,
 } from "@/lib/billing/seatConstants";
-import { syncStripeSubscriptionSeatsForOrganization } from "@/lib/billing/syncStripeSubscriptionSeats";
 import { ContentCard, PageHeader } from "@/components/crm-shell";
 
 export default async function BillingSettingsPage() {
+  const t0 = performance.now();
   const { userId, orgId, orgSlug } = await auth();
   if (!userId) redirect("/sign-in");
   if (!orgId) redirect("/organization/create");
 
   const organizationId = await resolveOrganizationId(orgId, orgSlug ?? null);
-  await syncStripeSubscriptionSeatsForOrganization(organizationId);
 
   const [activeCount, org] = await Promise.all([
     getActiveMembershipTotalCount(orgId),
@@ -39,6 +38,12 @@ export default async function BillingSettingsPage() {
     org?.subscriptionStatus === "active" ||
     org?.subscriptionStatus === "trialing" ||
     Boolean(org?.stripeSubscriptionId);
+  console.info("[perf] settings-billing", {
+    organizationId,
+    activeCount,
+    subscribed,
+    elapsedMs: Math.round(performance.now() - t0),
+  });
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">

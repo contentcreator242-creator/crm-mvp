@@ -68,6 +68,7 @@ export async function findOrganizationByLeadCapturePublicKey(publicKey: string):
 }
 
 export async function resolveOrganizationId(clerkOrganizationId: string, name?: string | null) {
+  const t0 = performance.now();
   const prisma = getPrisma();
   const org = await prisma.organization.upsert({
     where: { clerkOrganizationId },
@@ -81,15 +82,24 @@ export async function resolveOrganizationId(clerkOrganizationId: string, name?: 
   });
 
   await provisionOrganizationAfterUpsert(org.id);
+  console.info("[perf] resolve-organization-id", {
+    organizationId: org.id,
+    elapsedMs: Math.round(performance.now() - t0),
+  });
 
   return org.id;
 }
 
 /** Lead capture key + default lender catalog (call after upserting an organization row). */
 export async function provisionOrganizationAfterUpsert(organizationId: string): Promise<void> {
+  const t0 = performance.now();
   await ensureLeadCapturePublicKey(organizationId);
   await ensureDefaultLendersForOrganization(organizationId);
   await syncDefaultLendersFromCatalog(organizationId);
   /** Removes duplicate rows for the three featured catalog names (race / legacy double-seed). */
   await dedupeFeaturedCatalogLenders(organizationId);
+  console.info("[perf] provision-organization", {
+    organizationId,
+    elapsedMs: Math.round(performance.now() - t0),
+  });
 }

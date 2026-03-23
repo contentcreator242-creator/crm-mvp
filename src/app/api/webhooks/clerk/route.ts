@@ -8,6 +8,7 @@ function clerkOrgIdFromPayload(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
   const d = data as Record<string, unknown>;
   if (typeof d.organization_id === "string") return d.organization_id;
+  if (typeof d.organizationId === "string") return d.organizationId;
   const org = d.organization;
   if (org && typeof org === "object" && "id" in org && typeof (org as { id: unknown }).id === "string") {
     return (org as { id: string }).id;
@@ -34,13 +35,20 @@ export async function POST(req: Request) {
     const clerkOrgId = clerkOrgIdFromPayload(evt.data);
     if (!clerkOrgId) {
       console.warn("[clerk-webhook] missing organization id", evt.type);
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: false, error: "missing organization id" }, { status: 400 });
     }
 
+    console.info("[clerk-webhook] processing", { type: evt.type, clerkOrgId });
     await syncStripeSeatsForClerkOrganizationId(clerkOrgId);
+    console.info("[clerk-webhook] synced-seats", { type: evt.type, clerkOrgId });
     return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error("[clerk-webhook]", e);
-    return NextResponse.json({ ok: false }, { status: 400 });
+    const message = e instanceof Error ? e.message : "unknown error";
+    const isVerifyError =
+      message.includes("Missing required webhook headers") ||
+      message.includes("Unable to verify incoming webhook") ||
+      message.includes("Missing webhook signing secret");
+    console.error("[clerk-webhook] failed", { message });
+    return NextResponse.json({ ok: false }, { status: isVerifyError ? 400 : 500 });
   }
 }
